@@ -31,6 +31,8 @@ extern int max_iterations, refine_frequency, lb_freq;
 //extern bool inInitialMeshGenerationPhase;
 #define inInitialMeshGenerationPhase (meshGenIterations <= max_depth)
 
+extern float invokeDecisionKernel(float *, int, int, int, int);
+
 float ****delu = NULL, ****delua = NULL;
 float delu2[numDims2] = {}, delu3[numDims2] = {}, delu4[numDims2] = {};
 float refine_filter = 0.01;
@@ -1007,12 +1009,12 @@ void Advection::compute(){
 }
 
 Decision Advection::getGranularityDecision(){
-#ifdef USE_CPU
   float delx = 0.5/dx;
   float dely = 0.5/dy;
   float delz = 0.5/dz;
   float error=0;
 
+#ifdef USE_CPU
   for(int i=1; i <= block_width; i++){
     for(int j=1; j<=block_height; j++){
       for(int k=1; k<=block_depth; k++){
@@ -1069,7 +1071,7 @@ Decision Advection::getGranularityDecision(){
     }
   }
 #else
-  error = invokeDecisionKernel(block_width);
+  error = invokeDecisionKernel(u, dx, dy, dz, block_width);
 #endif
 
   error = sqrt(error);
