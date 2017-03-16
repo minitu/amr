@@ -37,24 +37,24 @@ __global__ void decisionKernel1(float *u, float *delu, float *delua, float dx, f
 
   // calculate differentials
   float u_pos, u_neg;
-  if (gx >= 1 && gy >= 1 && gz >= 1 && gx <= block_size && gy <= block_size && gz <= block_size) {
+  if ((gx >= 1 && gx <= block_size) && (gy >= 1 && gy <= block_size) && (gz >= 1 && gz <= block_size)) {
     // d/dx
-    u_pos = (tx < SUB_BLOCK_SIZE) ? (u_s[tx+1][ty][tz]) : (u[INDEX(gx+1,gy,gz)]);
+    u_pos = (tx < SUB_BLOCK_SIZE-1) ? (u_s[tx+1][ty][tz]) : (u[INDEX(gx+1,gy,gz)]);
     u_neg = (tx > 0) ? (u_s[tx-1][ty][tz]) : (u[INDEX(gx-1,gy,gz)]);
     delu[INDEX4(0,gx,gy,gz)] = (u_pos - u_neg)*delx;
-    delua[INDEX4(0,gx,gy,gz)] = (abs(u_pos) + abs(u_neg))*delx;
+    delua[INDEX4(0,gx,gy,gz)] = (fabsf(u_pos) + fabsf(u_neg))*delx;
 
     // d/dy
-    u_pos = (ty < SUB_BLOCK_SIZE) ? (u_s[tx][ty+1][tz]) : (u[INDEX(gx,gy+1,gz)]);
+    u_pos = (ty < SUB_BLOCK_SIZE-1) ? (u_s[tx][ty+1][tz]) : (u[INDEX(gx,gy+1,gz)]);
     u_neg = (ty > 0) ? (u_s[tx][ty-1][tz]) : (u[INDEX(gx,gy-1,gz)]);
     delu[INDEX4(1,gx,gy,gz)] = (u_pos - u_neg)*dely;
-    delua[INDEX4(1,gx,gy,gz)] = (abs(u_pos) + abs(u_neg))*dely;
+    delua[INDEX4(1,gx,gy,gz)] = (fabsf(u_pos) + fabsf(u_neg))*dely;
 
     // d/dz
-    u_pos = (tz < SUB_BLOCK_SIZE) ? (u_s[tx][ty][tz+1]) : (u[INDEX(gx,gy,gz+1)]);
+    u_pos = (tz < SUB_BLOCK_SIZE-1) ? (u_s[tx][ty][tz+1]) : (u[INDEX(gx,gy,gz+1)]);
     u_neg = (tz > 0) ? (u_s[tx][ty][tz-1]) : (u[INDEX(gx,gy,gz-1)]);
     delu[INDEX4(2,gx,gy,gz)] = (u_pos - u_neg)*delz;
-    delua[INDEX4(2,gx,gy,gz)] = (abs(u_pos) + abs(u_neg))*delz;
+    delua[INDEX4(2,gx,gy,gz)] = (fabsf(u_pos) + fabsf(u_neg))*delz;
   }
 #undef INDEX
 #undef INDEX4
@@ -72,7 +72,7 @@ __device__ static float atomicMax(float* address, float val)
   return __int_as_float(old);
 }
 
-__global__ void decisionKernel2(float *u, float *delu, float *delua, float *error_g, float refine_filter, float dx, float dy, float dz, int block_size) {
+__global__ void decisionKernel2(float *delu, float *delua, float *error_g, float refine_filter, float dx, float dy, float dz, int block_size) {
 #define INDEX(i,j,k) ((k * (block_size+2) + j) * (block_size+2) + i)
 #define INDEX4(d,i,j,k) (((d * (block_size+2) + k) * (block_size+2) + j) * (block_size+2) + i)
   float delx = 0.5/dx;
@@ -108,28 +108,53 @@ __global__ void decisionKernel2(float *u, float *delu, float *delua, float *erro
   float delua_pos, delua_neg;
   float num = 0, denom = 0;
   float error;
-  if (gx > 1 && gy > 1 && gz > 1 && gx < block_size && gy < block_size && gz < block_size) {
+  if ((gx > 1 && gx < block_size) && (gy > 1 && gy < block_size) && (gz > 1 && gz < block_size)) {
     for (int d = 0; d < NUM_DIMS; d++) {
-      delu_pos = (tx < SUB_BLOCK_SIZE) ? (delu_s[d][tx+1][ty][tz]) : (delu[INDEX4(d,gx+1,gy,gz)]);
+      /*
+      delu_pos = (tx < SUB_BLOCK_SIZE-1) ? (delu_s[d][tx+1][ty][tz]) : (delu[INDEX4(d,gx+1,gy,gz)]);
       delu_neg = (tx > 0) ? (delu_s[d][tx-1][ty][tz]) : (delu[INDEX4(d,gx-1,gy,gz)]);
-      delua_pos = (tx < SUB_BLOCK_SIZE) ? (delua_s[d][tx+1][ty][tz]) : (delua[INDEX4(d,gx+1,gy,gz)]);
+      delua_pos = (tx < SUB_BLOCK_SIZE-1) ? (delua_s[d][tx+1][ty][tz]) : (delua[INDEX4(d,gx+1,gy,gz)]);
       delua_neg = (tx > 0) ? (delua_s[d][tx-1][ty][tz]) : (delua[INDEX4(d,gx-1,gy,gz)]);
       delu_n[0][3*d+0] = (delu_pos - delu_neg)*delx;
       delu_n[1][3*d+0] = (abs(delu_pos) + abs(delu_neg))*delx;
       delu_n[2][3*d+0] = (delua_pos + delua_neg)*delx;
 
-      delu_pos = (ty < SUB_BLOCK_SIZE) ? (delu_s[d][tx][ty+1][tz]) : (delu[INDEX4(d,gx,gy+1,gz)]);
+      delu_pos = (ty < SUB_BLOCK_SIZE-1) ? (delu_s[d][tx][ty+1][tz]) : (delu[INDEX4(d,gx,gy+1,gz)]);
       delu_neg = (ty > 0) ? (delu_s[d][tx][ty-1][tz]) : (delu[INDEX4(d,gx,gy-1,gz)]);
-      delua_pos = (ty < SUB_BLOCK_SIZE) ? (delua_s[d][tx][ty+1][tz]) : (delua[INDEX4(d,gx,gy+1,gz)]);
+      delua_pos = (ty < SUB_BLOCK_SIZE-1) ? (delua_s[d][tx][ty+1][tz]) : (delua[INDEX4(d,gx,gy+1,gz)]);
       delua_neg = (ty > 0) ? (delua_s[d][tx][ty-1][tz]) : (delua[INDEX4(d,gx,gy-1,gz)]);
       delu_n[0][3*d+1] = (delu_pos - delu_neg)*dely;
       delu_n[1][3*d+1] = (abs(delu_pos) + abs(delu_neg))*dely;
       delu_n[2][3*d+1] = (delua_pos + delua_neg)*dely;
 
-      delu_pos = (tz < SUB_BLOCK_SIZE) ? (delu_s[d][tx][ty][tz+1]) : (delu[INDEX4(d,gx,gy,gz+1)]);
+      delu_pos = (tz < SUB_BLOCK_SIZE-1) ? (delu_s[d][tx][ty][tz+1]) : (delu[INDEX4(d,gx,gy,gz+1)]);
       delu_neg = (tz > 0) ? (delu_s[d][tx][ty][tz-1]) : (delu[INDEX4(d,gx,gy,gz-1)]);
-      delua_pos = (tz < SUB_BLOCK_SIZE) ? (delua_s[d][tx][ty][tz+1]) : (delua[INDEX4(d,gx,gy,gz+1)]);
+      delua_pos = (tz < SUB_BLOCK_SIZE-1) ? (delua_s[d][tx][ty][tz+1]) : (delua[INDEX4(d,gx,gy,gz+1)]);
       delua_neg = (tz > 0) ? (delua_s[d][tx][ty][tz-1]) : (delua[INDEX4(d,gx,gy,gz-1)]);
+      delu_n[0][3*d+2] = (delu_pos - delu_neg)*delz;
+      delu_n[1][3*d+2] = (abs(delu_pos) + abs(delu_neg))*delz;
+      delu_n[2][3*d+2] = (delua_pos + delua_neg)*delz;
+      */
+      delu_pos = delu_s[d][tx+1][ty][tz];
+      delu_neg = delu_s[d][tx-1][ty][tz];
+      delua_pos = delua_s[d][tx+1][ty][tz];
+      delua_neg = delua_s[d][tx-1][ty][tz];
+      delu_n[0][3*d+0] = (delu_pos - delu_neg)*delx;
+      delu_n[1][3*d+0] = (abs(delu_pos) + abs(delu_neg))*delx;
+      delu_n[2][3*d+0] = (delua_pos + delua_neg)*delx;
+
+      delu_pos = delu_s[d][tx][ty+1][tz];
+      delu_neg = delu_s[d][tx][ty-1][tz];
+      delua_pos = delua_s[d][tx][ty+1][tz];
+      delua_neg = delua_s[d][tx][ty-1][tz];
+      delu_n[0][3*d+1] = (delu_pos - delu_neg)*dely;
+      delu_n[1][3*d+1] = (abs(delu_pos) + abs(delu_neg))*dely;
+      delu_n[2][3*d+1] = (delua_pos + delua_neg)*dely;
+
+      delu_pos = delu_s[d][tx][ty][tz+1];
+      delu_neg = delu_s[d][tx][ty][tz-1];
+      delua_pos = delua_s[d][tx][ty][tz+1];
+      delua_neg = delua_s[d][tx][ty][tz-1];
       delu_n[0][3*d+2] = (delu_pos - delu_neg)*delz;
       delu_n[1][3*d+2] = (abs(delu_pos) + abs(delu_neg))*delz;
       delu_n[2][3*d+2] = (delua_pos + delua_neg)*delz;
@@ -167,7 +192,7 @@ float invokeDecisionKernel(float *u, int refine_filter, int dx, int dy, int dz, 
   float *d_u;
   float *d_delu, *d_delua;
   size_t u_size = (block_size+2)*(block_size+2)*(block_size+2);
-  size_t delu_size = 3 * u_size;
+  size_t delu_size = NUM_DIMS * u_size;
 
   gpuSafe(cudaStreamCreate(&decisionStream));
 
@@ -183,11 +208,11 @@ float invokeDecisionKernel(float *u, int refine_filter, int dx, int dy, int dz, 
   dim3 dimBlock(SUB_BLOCK_SIZE, SUB_BLOCK_SIZE, SUB_BLOCK_SIZE);
   decisionKernel1<<<dimGrid, dimBlock, 0, decisionStream>>>(d_u, d_delu, d_delua, dx, dy, dz, block_size);
   gpuCheck();
-  /*
 
+  /*
   sub_block_cnt = ceil((float)block_size/SUB_BLOCK_SIZE);
   dimGrid = dim3(sub_block_cnt, sub_block_cnt, sub_block_cnt);
-  decisionKernel2<<<dimGrid, dimBlock, 0, decisionStream>>>(d_u, d_delu, d_delua, d_error, refine_filter, dx, dy, dz, block_size);
+  decisionKernel2<<<dimGrid, dimBlock, 0, decisionStream>>>(d_delu, d_delua, d_error, refine_filter, dx, dy, dz, block_size);
   gpuCheck();
   */
 
