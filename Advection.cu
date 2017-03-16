@@ -1,9 +1,18 @@
 //#include "wr.h"
 #include <math_constants.h>
+#include <stdio.h>
 
 #define USE_GPUMANAGER 0
 #define SUB_BLOCK_SIZE 8
 #define NUM_DIMS 3
+
+#define gpuSafe(retval) gpuPrintErr((retval), __FILE__, __LINE__)
+#define gpuCheck() gpuPrintErr(cudaGetLastError(), __FILE__, __LINE__)
+
+inline void gpuPrintErr(cudaError_t err, const char *file, int line) {
+  if (err != cudaSuccess)
+    fprintf(stderr,"CUDA Error: %s at %s:%d\n", cudaGetErrorString(err), file, line);
+}
 
 __global__ void decisionKernel1(float *u, float *delu, float *delua, float dx, float dy, float dz, int block_size) {
 #define INDEX(i,j,k) ((k * (block_size+2) + j) * (block_size+2) + i)
@@ -77,16 +86,16 @@ __global__ void decisionKernel2(float *u, float *delu, float *delua, float *erro
   int tx = threadIdx.x;
   int ty = threadIdx.y;
   int tz = threadIdx.z;
-  int gx = blockDim.x * blockIdx.x + threadIdx.x;
-  int gy = blockDim.y * blockIdx.y + threadIdx.y;
-  int gz = blockDim.z * blockIdx.z + threadIdx.z;
+  int gx = blockDim.x * blockIdx.x + threadIdx.x + 1;
+  int gy = blockDim.y * blockIdx.y + threadIdx.y + 1;
+  int gz = blockDim.z * blockIdx.z + threadIdx.z + 1;
 
   // set shared error to 0
   if (tx == 0 && ty == 0 && tz == 0)
     error_s = 0;
 
   // read delu & delua into shared memory
-  if ((gx >= 1 && gx <= block_size) && (gy >= 1 && gy <= block_size) && (gz >= 1 && gz <= block_size)) {
+  if (gx <= block_size && gy <= block_size && gz <= block_size) {
     for (int d = 0; d < NUM_DIMS; d++) {
       delu_s[d][tx][ty][tz] = delu[INDEX4(d,gx,gy,gz)];
       delua_s[d][tx][ty][tz] = delua[INDEX4(d,gx,gy,gz)];
@@ -150,9 +159,9 @@ __global__ void decisionKernel2(float *u, float *delu, float *delua, float *erro
 #undef INDEX4
 }
 
-float invokeDecisionKernel(float *u, int dx, int dy, int dz, int block_size) {
-  float error;
-#ifndef USE_GPUMANAGER
+float invokeDecisionKernel(float *u, int refine_filter, int dx, int dy, int dz, int block_size) {
+  float *error = (float *)malloc(sizeof(float));
+#if !USE_GPUMANAGER
   cudaStream_t decisionStream;
   float *d_error;
   float *d_u;
@@ -160,38 +169,42 @@ float invokeDecisionKernel(float *u, int dx, int dy, int dz, int block_size) {
   size_t u_size = (block_size+2)*(block_size+2)*(block_size+2);
   size_t delu_size = 3 * u_size;
 
-  cudaStreamCreate(&decisionStream);
+  gpuSafe(cudaStreamCreate(&decisionStream));
 
-  cudaMalloc(&d_u, u_size);
-  cudaMalloc(&d_delu, delu_size);
-  cudaMalloc(&d_delua, delu_size);
-  cudaMalloc(&d_error, sizeof(float));
+  gpuSafe(cudaMalloc(&d_u, u_size));
+  gpuSafe(cudaMalloc(&d_delu, delu_size));
+  gpuSafe(cudaMalloc(&d_delua, delu_size));
+  gpuSafe(cudaMalloc(&d_error, sizeof(float)));
   
-  cudaMemcpyAsync(d_u, u, u_size, cudaMemcpyHostToDevice, decisionStream);
+  gpuSafe(cudaMemcpyAsync(d_u, u, u_size, cudaMemcpyHostToDevice, decisionStream));
 
   int sub_block_cnt = ceil((float)(block_size+2)/SUB_BLOCK_SIZE);
   dim3 dimGrid(sub_block_cnt, sub_block_cnt, sub_block_cnt);
   dim3 dimBlock(SUB_BLOCK_SIZE, SUB_BLOCK_SIZE, SUB_BLOCK_SIZE);
   decisionKernel1<<<dimGrid, dimBlock, 0, decisionStream>>>(d_u, d_delu, d_delua, dx, dy, dz, block_size);
+  gpuCheck();
+  /*
 
   sub_block_cnt = ceil((float)block_size/SUB_BLOCK_SIZE);
-  dim3 dimGrid(sub_block_cnt, sub_block_cnt, sub_block_cnt);
+  dimGrid = dim3(sub_block_cnt, sub_block_cnt, sub_block_cnt);
   decisionKernel2<<<dimGrid, dimBlock, 0, decisionStream>>>(d_u, d_delu, d_delua, d_error, refine_filter, dx, dy, dz, block_size);
-  
-  cudaMemcpyAsync(&error, d_error, sizeof(float), cudaMemcpyDeviceToHost, decisionStream);
+  gpuCheck();
+  */
 
-  cudaStreamSynchronize(decisionStream);
+  //gpuSafe(cudaMemcpyAsync(error, d_error, sizeof(float), cudaMemcpyDeviceToHost, decisionStream));
 
-  cudaFree(d_u);
-  cudaFree(d_delu);
-  cudaFree(d_delua);
-  cudaFree(d_error);
+  gpuSafe(cudaStreamSynchronize(decisionStream));
 
-  cudaStreamDestroy(decisionStream);
+  gpuSafe(cudaFree(d_u));
+  gpuSafe(cudaFree(d_delu));
+  gpuSafe(cudaFree(d_delua));
+  gpuSafe(cudaFree(d_error));
+
+  gpuSafe(cudaStreamDestroy(decisionStream));
 
 #else
 
 #endif
 
-  return error;
+  return *error;
 }
