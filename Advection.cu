@@ -1,5 +1,7 @@
 //#include "wr.h"
+#include <cub/cub.cuh>
 #include <math_constants.h>
+#include <math_functions.h>
 #include <stdio.h>
 
 #define USE_GPUMANAGER 0
@@ -15,8 +17,8 @@ inline void gpuPrintErr(cudaError_t err, const char *file, int line) {
 }
 
 __global__ void decisionKernel1(float *u, float *delu, float *delua, float dx, float dy, float dz, int block_size) {
-#define INDEX(i,j,k) ((k * (block_size+2) + j) * (block_size+2) + i)
-#define INDEX4(d,i,j,k) (((d * (block_size+2) + k) * (block_size+2) + j) * (block_size+2) + i)
+#define INDEX(i,j,k) (((k) * (block_size+2) + (j)) * (block_size+2) + (i))
+#define INDEX4(d,i,j,k) ((((d) * (block_size+2) + (k)) * (block_size+2) + (j)) * (block_size+2) + (i))
   float delx = 0.5/dx;
   float dely = 0.5/dy;
   float delz = 0.5/dz;
@@ -37,22 +39,28 @@ __global__ void decisionKernel1(float *u, float *delu, float *delua, float dx, f
 
   // calculate differentials
   float u_pos, u_neg;
-  if ((gx >= 1 && gx <= block_size) && (gy >= 1 && gy <= block_size) && (gz >= 1 && gz <= block_size)) {
+  if (((gx >= 1 && gx <= block_size) && (gy >= 1 && gy <= block_size)) && (gz >= 1 && gz <= block_size)) {
     // d/dx
     u_pos = (tx < SUB_BLOCK_SIZE-1) ? (u_s[tx+1][ty][tz]) : (u[INDEX(gx+1,gy,gz)]);
     u_neg = (tx > 0) ? (u_s[tx-1][ty][tz]) : (u[INDEX(gx-1,gy,gz)]);
+    //u_pos = u[INDEX(gx+1,gy,gz)];
+    //u_neg = u[INDEX(gx-1,gy,gz)];
     delu[INDEX4(0,gx,gy,gz)] = (u_pos - u_neg)*delx;
     delua[INDEX4(0,gx,gy,gz)] = (fabsf(u_pos) + fabsf(u_neg))*delx;
 
     // d/dy
     u_pos = (ty < SUB_BLOCK_SIZE-1) ? (u_s[tx][ty+1][tz]) : (u[INDEX(gx,gy+1,gz)]);
     u_neg = (ty > 0) ? (u_s[tx][ty-1][tz]) : (u[INDEX(gx,gy-1,gz)]);
+    //u_pos = u[INDEX(gx,gy+1,gz)];
+    //u_neg = u[INDEX(gx,gy-1,gz)];
     delu[INDEX4(1,gx,gy,gz)] = (u_pos - u_neg)*dely;
     delua[INDEX4(1,gx,gy,gz)] = (fabsf(u_pos) + fabsf(u_neg))*dely;
 
     // d/dz
     u_pos = (tz < SUB_BLOCK_SIZE-1) ? (u_s[tx][ty][tz+1]) : (u[INDEX(gx,gy,gz+1)]);
     u_neg = (tz > 0) ? (u_s[tx][ty][tz-1]) : (u[INDEX(gx,gy,gz-1)]);
+    //u_pos = u[INDEX(gx,gy,gz+1)];
+    //u_neg = u[INDEX(gx,gy,gz-1)];
     delu[INDEX4(2,gx,gy,gz)] = (u_pos - u_neg)*delz;
     delua[INDEX4(2,gx,gy,gz)] = (fabsf(u_pos) + fabsf(u_neg))*delz;
   }
@@ -72,9 +80,10 @@ __device__ static float atomicMax(float* address, float val)
   return __int_as_float(old);
 }
 
-__global__ void decisionKernel2(float *delu, float *delua, float *error_g, float refine_filter, float dx, float dy, float dz, int block_size) {
-#define INDEX(i,j,k) ((k * (block_size+2) + j) * (block_size+2) + i)
-#define INDEX4(d,i,j,k) (((d * (block_size+2) + k) * (block_size+2) + j) * (block_size+2) + i)
+__global__ void decisionKernel2(float *delu, float *delua, float *error_g, float *errors_g, float refine_filter, float dx, float dy, float dz, int block_size) {
+#define INDEX(i,j,k) (((k) * (block_size+2) + (j)) * (block_size+2) + (i))
+#define INDEX4(d,i,j,k) ((((d) * (block_size+2) + (k)) * (block_size+2) + (j)) * (block_size+2) + (i))
+#define ERR_INDEX(i,j,k) ((((k)-2) * (block_size-2) + ((j)-2)) * (block_size-2) + ((i)-2))
   float delx = 0.5/dx;
   float dely = 0.5/dy;
   float delz = 0.5/dz;
@@ -106,11 +115,10 @@ __global__ void decisionKernel2(float *delu, float *delua, float *error_g, float
   // calculate error per thread
   float delu_pos, delu_neg;
   float delua_pos, delua_neg;
-  float num = 0, denom = 0;
+  float num = 0.0, denom = 0.0;
   float error;
   if ((gx > 1 && gx < block_size) && (gy > 1 && gy < block_size) && (gz > 1 && gz < block_size)) {
     for (int d = 0; d < NUM_DIMS; d++) {
-      /*
       delu_pos = (tx < SUB_BLOCK_SIZE-1) ? (delu_s[d][tx+1][ty][tz]) : (delu[INDEX4(d,gx+1,gy,gz)]);
       delu_neg = (tx > 0) ? (delu_s[d][tx-1][ty][tz]) : (delu[INDEX4(d,gx-1,gy,gz)]);
       delua_pos = (tx < SUB_BLOCK_SIZE-1) ? (delua_s[d][tx+1][ty][tz]) : (delua[INDEX4(d,gx+1,gy,gz)]);
@@ -134,7 +142,7 @@ __global__ void decisionKernel2(float *delu, float *delua, float *error_g, float
       delu_n[0][3*d+2] = (delu_pos - delu_neg)*delz;
       delu_n[1][3*d+2] = (abs(delu_pos) + abs(delu_neg))*delz;
       delu_n[2][3*d+2] = (delua_pos + delua_neg)*delz;
-      */
+      /*
       delu_pos = delu_s[d][tx+1][ty][tz];
       delu_neg = delu_s[d][tx-1][ty][tz];
       delua_pos = delua_s[d][tx+1][ty][tz];
@@ -158,6 +166,7 @@ __global__ void decisionKernel2(float *delu, float *delua, float *error_g, float
       delu_n[0][3*d+2] = (delu_pos - delu_neg)*delz;
       delu_n[1][3*d+2] = (abs(delu_pos) + abs(delu_neg))*delz;
       delu_n[2][3*d+2] = (delua_pos + delua_neg)*delz;
+      */
     }
 
     for (int dd = 0; dd < NUM_DIMS * NUM_DIMS; dd++) {
@@ -172,6 +181,9 @@ __global__ void decisionKernel2(float *delu, float *delua, float *error_g, float
       error = fmaxf(error, num/denom);
     }
 
+    // store error in global memory
+    //errors_g[ERR_INDEX(gx,gy,gz)] = error;
+
     // find max error in thread block
     atomicMax(&error_s, error);
   }
@@ -182,17 +194,22 @@ __global__ void decisionKernel2(float *delu, float *delua, float *error_g, float
     atomicMax(error_g, error_s);
 #undef INDEX
 #undef INDEX4
+#undef ERR_INDEX
 }
 
-float invokeDecisionKernel(float *u, int refine_filter, int dx, int dy, int dz, int block_size) {
-  float *error = (float *)malloc(sizeof(float));
+float invokeDecisionKernel(float *u, float *delu_gpu, float refine_filter, float dx, float dy, float dz, int block_size) {
+  float error;
+  float *h_error;
+  gpuSafe(cudaMallocHost(&h_error, sizeof(float)));
 #if !USE_GPUMANAGER
   cudaStream_t decisionStream;
-  float *d_error;
-  float *d_u;
-  float *d_delu, *d_delua;
-  size_t u_size = (block_size+2)*(block_size+2)*(block_size+2);
+  float *d_error, *d_errors;
+  float *d_u, *d_delu, *d_delua;
+  size_t error_size = sizeof(float)*(block_size-2)*(block_size-2)*(block_size-2);
+  size_t u_size = sizeof(float)*(block_size+2)*(block_size+2)*(block_size+2);
   size_t delu_size = NUM_DIMS * u_size;
+  float *h_delu;
+  gpuSafe(cudaMallocHost(&h_delu, delu_size));
 
   gpuSafe(cudaStreamCreate(&decisionStream));
 
@@ -200,6 +217,7 @@ float invokeDecisionKernel(float *u, int refine_filter, int dx, int dy, int dz, 
   gpuSafe(cudaMalloc(&d_delu, delu_size));
   gpuSafe(cudaMalloc(&d_delua, delu_size));
   gpuSafe(cudaMalloc(&d_error, sizeof(float)));
+  gpuSafe(cudaMalloc(&d_errors, error_size));
   
   gpuSafe(cudaMemcpyAsync(d_u, u, u_size, cudaMemcpyHostToDevice, decisionStream));
 
@@ -209,21 +227,27 @@ float invokeDecisionKernel(float *u, int refine_filter, int dx, int dy, int dz, 
   decisionKernel1<<<dimGrid, dimBlock, 0, decisionStream>>>(d_u, d_delu, d_delua, dx, dy, dz, block_size);
   gpuCheck();
 
+  gpuSafe(cudaMemcpyAsync(h_delu, d_delu, delu_size, cudaMemcpyDeviceToHost, decisionStream));
+
   /*
   sub_block_cnt = ceil((float)block_size/SUB_BLOCK_SIZE);
   dimGrid = dim3(sub_block_cnt, sub_block_cnt, sub_block_cnt);
-  decisionKernel2<<<dimGrid, dimBlock, 0, decisionStream>>>(d_delu, d_delua, d_error, refine_filter, dx, dy, dz, block_size);
+  decisionKernel2<<<dimGrid, dimBlock, 0, decisionStream>>>(d_delu, d_delua, d_error, d_errors, refine_filter, dx, dy, dz, block_size);
   gpuCheck();
+
+  gpuSafe(cudaMemcpyAsync(h_error, d_error, sizeof(float), cudaMemcpyDeviceToHost, decisionStream));
   */
-
-  //gpuSafe(cudaMemcpyAsync(error, d_error, sizeof(float), cudaMemcpyDeviceToHost, decisionStream));
-
   gpuSafe(cudaStreamSynchronize(decisionStream));
+  memcpy(delu_gpu, h_delu, delu_size);
+  error = *h_error;
 
   gpuSafe(cudaFree(d_u));
   gpuSafe(cudaFree(d_delu));
   gpuSafe(cudaFree(d_delua));
   gpuSafe(cudaFree(d_error));
+  gpuSafe(cudaFree(d_errors));
+  gpuSafe(cudaFreeHost(h_delu));
+  gpuSafe(cudaFreeHost(h_error));
 
   gpuSafe(cudaStreamDestroy(decisionStream));
 
@@ -231,5 +255,5 @@ float invokeDecisionKernel(float *u, int refine_filter, int dx, int dy, int dz, 
 
 #endif
 
-  return *error;
+  return error;
 }

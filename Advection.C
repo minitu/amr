@@ -33,7 +33,7 @@ extern int max_iterations, refine_frequency, lb_freq;
 //extern bool inInitialMeshGenerationPhase;
 #define inInitialMeshGenerationPhase (meshGenIterations <= max_depth)
 
-extern float invokeDecisionKernel(float *, int, int, int, int, int);
+extern float invokeDecisionKernel(float *, float *, float, float, float, float, int);
 
 float ****delu = NULL, ****delua = NULL;
 float delu2[numDims2] = {}, delu3[numDims2] = {}, delu4[numDims2] = {};
@@ -1016,10 +1016,11 @@ Decision Advection::getGranularityDecision(){
   float delz = 0.5/dz;
   float error=0;
 
-#if !USE_GPU
+//#if !USE_GPU
   for(int i=1; i <= block_width; i++){
     for(int j=1; j<=block_height; j++){
       for(int k=1; k<=block_depth; k++){
+        //printf("u[%d][%d][%d]: %f\n", i, j, k, u[index(i,j,k)]);
         // d/dx
         delu[0][i][j][k] = (u[index(i+1, j, k)] - u[index(i-1, j, k)])*delx;
         delua[0][i][j][k] = abs(u[index(i+1, j, k)]) + abs(u[index(i-1, j, k)])*delx;
@@ -1072,9 +1073,25 @@ Decision Advection::getGranularityDecision(){
       }
     }
   }
-#else
-  error = invokeDecisionKernel(u, refine_filter, dx, dy, dz, block_width);
-#endif
+//#else
+  float *delu_gpu = (float *)malloc(sizeof(float)*3*(block_width+2)*(block_height+2)*(block_depth+2));
+  float error_gpu = invokeDecisionKernel(u, delu_gpu, refine_filter, dx, dy, dz, block_width);
+#define INDEX4(d,i,j,k) (((d * (block_width+2) + k) * (block_width+2) + j) * (block_width+2) + i)
+  for (int d = 0; d < 3; d++) {
+    for (int i = 1; i <= block_width; i++) {
+      for (int j = 1; j <= block_height; j++) {
+        for (int k = 1; k <= block_depth; k++) {
+          if (delu[d][i][j][k] != delu_gpu[INDEX4(d,i,j,k)])
+            printf("delu[%d][%d][%d][%d]: CPU %f, GPU %f\n", d, i, j, k, delu[d][i][j][k], delu_gpu[INDEX4(d,i,j,k)]);
+          //if (u[index(i,j,k+1)] != delu_gpu[INDEX4(2,i,j,k)])
+          //  printf("u[%d][%d][%d]: CPU %f, GPU %f\n", i, j, k-1, u[index(i,j,k-1)], delu_gpu[INDEX4(2,i,j,k)]);
+        }
+      }
+    }
+  }
+#undef INDEX4
+  //printf("CPU error: %f, GPU error: %f\n", error, error_gpu);
+//#endif
 
   error = sqrt(error);
   if(error < derefine_cutoff && thisIndex.getDepth() > min_depth) return COARSEN;
