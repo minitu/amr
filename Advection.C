@@ -1023,7 +1023,7 @@ Decision Advection::getGranularityDecision(){
         //printf("u[%d][%d][%d]: %f\n", i, j, k, u[index(i,j,k)]);
         // d/dx
         delu[0][i][j][k] = (u[index(i+1, j, k)] - u[index(i-1, j, k)])*delx;
-        delua[0][i][j][k] = abs(u[index(i+1, j, k)]) + abs(u[index(i-1, j, k)])*delx;
+        delua[0][i][j][k] = (abs(u[index(i+1, j, k)]) + abs(u[index(i-1, j, k)]))*delx;
 
         // d/dy
         delu[1][i][j][k] = (u[index(i, j+1, k)] - u[index(i, j-1, k)])*dely;
@@ -1064,33 +1064,27 @@ Decision Advection::getGranularityDecision(){
           num = num + pow(delu2[kk],2.);
           denom = denom + pow(delu3[kk], 2.) + (refine_filter*delu4[kk])*2;
         }
+        //if (i == 11 && j == 11 && k == 11)
+          //CkPrintf("H [%d][%d][%d] num: %.20f, denom: %.20f, num/denom: %.20f\n", i, j, k, num, denom, num/denom);
         // compare the square of the error
+        //float error2 = 0.;
         if (denom == 0. && num != 0.){
+          printf("D denom is zero!!!!!!!!!!!!!!!!!!!\n");
           error = std::numeric_limits<float>::max();
         } else if (denom != 0.0){
           error = std::max(error, num/denom);
         }
+        //printf("H [%d][%d][%d] adding error: %f\n", i, j, k, error2);
+        //error += error2;
       }
     }
   }
 //#else
-  float *delu_gpu = (float *)malloc(sizeof(float)*3*(block_width+2)*(block_height+2)*(block_depth+2));
-  float error_gpu = invokeDecisionKernel(u, delu_gpu, refine_filter, dx, dy, dz, block_width);
-#define INDEX4(d,i,j,k) (((d * (block_width+2) + k) * (block_width+2) + j) * (block_width+2) + i)
-  for (int d = 0; d < 3; d++) {
-    for (int i = 1; i <= block_width; i++) {
-      for (int j = 1; j <= block_height; j++) {
-        for (int k = 1; k <= block_depth; k++) {
-          if (delu[d][i][j][k] != delu_gpu[INDEX4(d,i,j,k)])
-            printf("delu[%d][%d][%d][%d]: CPU %f, GPU %f\n", d, i, j, k, delu[d][i][j][k], delu_gpu[INDEX4(d,i,j,k)]);
-          //if (u[index(i,j,k+1)] != delu_gpu[INDEX4(2,i,j,k)])
-          //  printf("u[%d][%d][%d]: CPU %f, GPU %f\n", i, j, k-1, u[index(i,j,k-1)], delu_gpu[INDEX4(2,i,j,k)]);
-        }
-      }
-    }
-  }
-#undef INDEX4
-  //printf("CPU error: %f, GPU error: %f\n", error, error_gpu);
+  float *delu_n = (float *)malloc(sizeof(float) * (block_width-2) * (block_height-2) * (block_depth-2) * 3 * 9);
+  float error_gpu = invokeDecisionKernel(u, delu_n, refine_filter, dx, dy, dz, block_width);
+
+  CkPrintf("CPU error: %.30f, GPU error: %.30f\n", error, error_gpu);
+  free(delu_n);
 //#endif
 
   error = sqrt(error);

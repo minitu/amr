@@ -106,7 +106,7 @@ Main::Main(CkArgMsg* m){
   num_chares = num_chare_rows*num_chare_cols*num_chare_Zs;
   float fdepth = (log(num_chares)/log(NUM_CHILDREN));
   int depth = (fabs(fdepth - ceil(fdepth)) < 0.000001)?ceil(fdepth):floor(fdepth);
-  min_depth = depth;
+  min_depth = (depth > 3) ? depth : 3;
   //CkAssert(min_depth >= 4);
 
   // To maintain the semantics of "max_depth" that set it relative to

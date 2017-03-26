@@ -4,12 +4,12 @@ CHARMC ?= $(CHARMHOME)/bin/charmc -I.
 CXX=$(CHARMC)
 CUDATOOLKIT_HOME ?= /usr/local/cuda
 NVCC ?= $(CUDATOOLKIT_HOME)/bin/nvcc
-NVCC_FLAGS = -O3 -c -use_fast_math
+NVCC_FLAGS = -O3 -c --std=c++11 #-use_fast_math
 NVCC_INC = -I$(CUDATOOLKIT_HOME)/include -I$(CHARMHOME)/src/arch/cuda/hybridAPI -I./lib/cub-1.6.4
 CHARMINC = -I$(CHARMHOME)/include
 LD_LIBS = #-lcublas
 
-OPTS ?= -O3
+OPTS ?= -O3 -g
 CXXFLAGS += -DAMR_REVISION=$(REVNUM) $(OPTS)
 
 OBJS = OctIndex.o Advection.o Main.o AdvectionCU.o
