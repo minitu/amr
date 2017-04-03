@@ -1015,12 +1015,14 @@ Decision Advection::getGranularityDecision(){
   float dely = 0.5/dy;
   float delz = 0.5/dz;
   float error=0;
+  size_t delu_n_size = sizeof(float)*(block_width-2)*(block_height-2)*(block_depth-2)*3*numDims*numDims;
 
 //#if !USE_GPU
+  double cpu_time_start = CkWallTimer();
+  float *delu_n_cpu = (float *)malloc(delu_n_size);
   for(int i=1; i <= block_width; i++){
     for(int j=1; j<=block_height; j++){
       for(int k=1; k<=block_depth; k++){
-        //printf("u[%d][%d][%d]: %f\n", i, j, k, u[index(i,j,k)]);
         // d/dx
         delu[0][i][j][k] = (u[index(i+1, j, k)] - u[index(i-1, j, k)])*delx;
         delua[0][i][j][k] = (abs(u[index(i+1, j, k)]) + abs(u[index(i-1, j, k)]))*delx;
@@ -1036,6 +1038,7 @@ Decision Advection::getGranularityDecision(){
     }
   }
 
+#define INDEX4C(i,j,k,d) ((((d) * (block_depth-2) + (k)) * (block_height-2) + (j)) * (block_width-2) + (i))
   int istart=2, iend=block_width-1,
       jstart=2, jend=block_height-1,
       kstart=2, kend=block_depth-1;
@@ -1046,14 +1049,30 @@ Decision Advection::getGranularityDecision(){
           delu2[3*d+0] = (delu[d][i+1][j][k] - delu[d][i-1][j][k])*delx;
           delu3[3*d+0] = (abs(delu[d][i+1][j][k]) + abs(delu[d][i-1][j][k]))*delx;
           delu4[3*d+0] = (delua[d][i+1][j][k] + delua[d][i-1][j][k])*delx;
+          delu_n_cpu[INDEX4C(i-2,j-2,k-2,3*d+0)] = delu2[3*d+0];
+          delu_n_cpu[INDEX4C(i-2,j-2,k-2,9+3*d+0)] = delu3[3*d+0];
+          delu_n_cpu[INDEX4C(i-2,j-2,k-2,18+3*d+0)] = delu4[3*d+0];
+          /*
+          if (i == 12 && j == 12 && k == 9 && (9+3*d+0) == 9) {
+            printf("[CPU] delu_pos: %f, delu_neg: %f\n", delu[d][i+1][j][k], delu[d][i-1][j][k]);
+            printf("[CPU] delua_pos: %f, delua_neg: %f\n", delua[d][i+1][j][k], delua[d][i-1][j][k]);
+            printf("[CPU] delu_n: %f\n", delu3[3*d+0]);
+          }
+          */
 
           delu2[3*d+1] = (delu[d][i][j+1][k] - delu[d][i][j-1][k])*dely;
           delu3[3*d+1] = (abs(delu[d][i][j+1][k]) + abs(delu[d][i][j-1][k]))*dely;
           delu4[3*d+1] = (delua[d][i][j+1][k] + delua[d][i][j-1][k])*dely;
+          delu_n_cpu[INDEX4C(i-2,j-2,k-2,3*d+1)] = delu2[3*d+1];
+          delu_n_cpu[INDEX4C(i-2,j-2,k-2,9+3*d+1)] = delu3[3*d+1];
+          delu_n_cpu[INDEX4C(i-2,j-2,k-2,18+3*d+1)] = delu4[3*d+1];
 
           delu2[3*d+2] = (delu[d][i][j][k+1] - delu[d][i][j][k-1])*delz;
           delu3[3*d+2] = (abs(delu[d][i][j][k+1]) + abs(delu[d][i][j][k-1]))*delz;
           delu4[3*d+2] = (delua[d][i][j][k+1] + delua[d][i][j][k-1])*delz;
+          delu_n_cpu[INDEX4C(i-2,j-2,k-2,3*d+2)] = delu2[3*d+2];
+          delu_n_cpu[INDEX4C(i-2,j-2,k-2,9+3*d+2)] = delu3[3*d+2];
+          delu_n_cpu[INDEX4C(i-2,j-2,k-2,18+3*d+2)] = delu4[3*d+2];
         }
 
         // compute the error
@@ -1064,27 +1083,48 @@ Decision Advection::getGranularityDecision(){
           num = num + pow(delu2[kk],2.);
           denom = denom + pow(delu3[kk], 2.) + (refine_filter*delu4[kk])*2;
         }
-        //if (i == 11 && j == 11 && k == 11)
-          //CkPrintf("H [%d][%d][%d] num: %.20f, denom: %.20f, num/denom: %.20f\n", i, j, k, num, denom, num/denom);
-        // compare the square of the error
-        //float error2 = 0.;
+
         if (denom == 0. && num != 0.){
           printf("D denom is zero!!!!!!!!!!!!!!!!!!!\n");
           error = std::numeric_limits<float>::max();
         } else if (denom != 0.0){
           error = std::max(error, num/denom);
         }
-        //printf("H [%d][%d][%d] adding error: %f\n", i, j, k, error2);
-        //error += error2;
       }
     }
   }
+  double cpu_time_end = CkWallTimer();
 //#else
-  float *delu_n = (float *)malloc(sizeof(float) * (block_width-2) * (block_height-2) * (block_depth-2) * 3 * 9);
-  float error_gpu = invokeDecisionKernel(u, delu_n, refine_filter, dx, dy, dz, block_width);
+  float *delu_n_gpu = (float *)malloc(delu_n_size);
+  double gpu_time_start = CkWallTimer();
+  float error_gpu = invokeDecisionKernel(u, delu_n_gpu, refine_filter, dx, dy, dz, block_width);
+  double gpu_time_end = CkWallTimer();
 
-  CkPrintf("CPU error: %.30f, GPU error: %.30f\n", error, error_gpu);
-  free(delu_n);
+  /*
+  for (int i = 0; i < delu_n_size / sizeof(float); i++) {
+    if (delu_n_cpu[i] != delu_n_gpu[i])
+      CkPrintf("delu_n[%d]: %f / %f\n", i, delu_n_cpu[i], delu_n_gpu[i]);
+  }
+  */
+
+  for (int i = 0; i < block_width-2; i++) {
+    for (int j = 0; j < block_height-2; j++) {
+      for (int k = 0; k < block_depth-2; k++) {
+        for (int d = 0; d < 3 * numDims * numDims; d++) {
+          int index = INDEX4C(i,j,k,d);
+          if (delu_n_cpu[index] != delu_n_gpu[index])
+            CkPrintf("delu_n[%d][%d][%d][%d](%d): %f / %f\n", i, j, k, d, index, delu_n_cpu[index], delu_n_gpu[index]);
+        }
+      }
+    }
+  }
+
+  free(delu_n_cpu);
+  free(delu_n_gpu);
+#undef INDEX4C
+
+  CkPrintf("[Result]\tError:\t%20.16f / %20.16f\n", error, error_gpu);
+  CkPrintf("\t\tTime:\t%20.6lf / %20.6lf\n", (cpu_time_end - cpu_time_start), (gpu_time_end - gpu_time_start));
 //#endif
 
   error = sqrt(error);
