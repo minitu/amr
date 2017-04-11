@@ -1,8 +1,6 @@
 #include "Headers.h"
 #include <assert.h>
 
-#define USE_GPU 1
-
 using std::vector;
 using std::ofstream;
 using std::max;
@@ -33,7 +31,11 @@ extern int max_iterations, refine_frequency, lb_freq;
 //extern bool inInitialMeshGenerationPhase;
 #define inInitialMeshGenerationPhase (meshGenIterations <= max_depth)
 
-extern float invokeDecisionKernel(float *, float *, float, float, float, float, int);
+#ifdef GPU_DEBUG
+extern float invokeDecisionKernel(float *, float *, float *, float, float, float, float, int);
+#elif defined(USE_GPU)
+extern float invokeDecisionKernel(float *, float, float, float, float, int);
+#endif
 
 float ****delu = NULL, ****delua = NULL;
 float delu2[numDims2] = {}, delu3[numDims2] = {}, delu4[numDims2] = {};
@@ -1015,11 +1017,11 @@ Decision Advection::getGranularityDecision(){
   float dely = 0.5/dy;
   float delz = 0.5/dz;
   float error=0;
-  size_t delu_n_size = sizeof(float)*(block_width-2)*(block_height-2)*(block_depth-2)*3*numDims*numDims;
 
-//#if !USE_GPU
+#if !defined(USE_GPU) || defined(GPU_DEBUG)
+#ifdef GPU_DEBUG
   double cpu_time_start = CkWallTimer();
-  float *delu_n_cpu = (float *)malloc(delu_n_size);
+#endif
   for(int i=1; i <= block_width; i++){
     for(int j=1; j<=block_height; j++){
       for(int k=1; k<=block_depth; k++){
@@ -1038,7 +1040,15 @@ Decision Advection::getGranularityDecision(){
     }
   }
 
+#ifdef GPU_DEBUG
 #define INDEX4C(i,j,k,d) ((((d) * (block_depth-2) + (k)) * (block_height-2) + (j)) * (block_width-2) + (i))
+#define ERR_INDEX(i,j,k) ((((k)-2) * (block_height-2) + ((j)-2)) * (block_width-2) + ((i)-2))
+  size_t errors_size = sizeof(float) * (block_width-2) * (block_height-2) * (block_depth-2);
+  float *errors_cpu = (float *)malloc(errors_size);
+  size_t delu_n_size = sizeof(float)*(block_width-2)*(block_height-2)*(block_depth-2)*3*numDims*numDims;
+  float *delu_n_cpu = (float *)malloc(delu_n_size);
+#endif
+
   int istart=2, iend=block_width-1,
       jstart=2, jend=block_height-1,
       kstart=2, kend=block_depth-1;
@@ -1049,30 +1059,29 @@ Decision Advection::getGranularityDecision(){
           delu2[3*d+0] = (delu[d][i+1][j][k] - delu[d][i-1][j][k])*delx;
           delu3[3*d+0] = (abs(delu[d][i+1][j][k]) + abs(delu[d][i-1][j][k]))*delx;
           delu4[3*d+0] = (delua[d][i+1][j][k] + delua[d][i-1][j][k])*delx;
+#ifdef GPU_DEBUG
           delu_n_cpu[INDEX4C(i-2,j-2,k-2,3*d+0)] = delu2[3*d+0];
           delu_n_cpu[INDEX4C(i-2,j-2,k-2,9+3*d+0)] = delu3[3*d+0];
           delu_n_cpu[INDEX4C(i-2,j-2,k-2,18+3*d+0)] = delu4[3*d+0];
-          /*
-          if (i == 12 && j == 12 && k == 9 && (9+3*d+0) == 9) {
-            printf("[CPU] delu_pos: %f, delu_neg: %f\n", delu[d][i+1][j][k], delu[d][i-1][j][k]);
-            printf("[CPU] delua_pos: %f, delua_neg: %f\n", delua[d][i+1][j][k], delua[d][i-1][j][k]);
-            printf("[CPU] delu_n: %f\n", delu3[3*d+0]);
-          }
-          */
+#endif
 
           delu2[3*d+1] = (delu[d][i][j+1][k] - delu[d][i][j-1][k])*dely;
           delu3[3*d+1] = (abs(delu[d][i][j+1][k]) + abs(delu[d][i][j-1][k]))*dely;
           delu4[3*d+1] = (delua[d][i][j+1][k] + delua[d][i][j-1][k])*dely;
+#ifdef GPU_DEBUG
           delu_n_cpu[INDEX4C(i-2,j-2,k-2,3*d+1)] = delu2[3*d+1];
           delu_n_cpu[INDEX4C(i-2,j-2,k-2,9+3*d+1)] = delu3[3*d+1];
           delu_n_cpu[INDEX4C(i-2,j-2,k-2,18+3*d+1)] = delu4[3*d+1];
+#endif
 
           delu2[3*d+2] = (delu[d][i][j][k+1] - delu[d][i][j][k-1])*delz;
           delu3[3*d+2] = (abs(delu[d][i][j][k+1]) + abs(delu[d][i][j][k-1]))*delz;
           delu4[3*d+2] = (delua[d][i][j][k+1] + delua[d][i][j][k-1])*delz;
+#ifdef GPU_DEBUG
           delu_n_cpu[INDEX4C(i-2,j-2,k-2,3*d+2)] = delu2[3*d+2];
           delu_n_cpu[INDEX4C(i-2,j-2,k-2,9+3*d+2)] = delu3[3*d+2];
           delu_n_cpu[INDEX4C(i-2,j-2,k-2,18+3*d+2)] = delu4[3*d+2];
+#endif
         }
 
         // compute the error
@@ -1085,47 +1094,58 @@ Decision Advection::getGranularityDecision(){
         }
 
         if (denom == 0. && num != 0.){
-          printf("D denom is zero!!!!!!!!!!!!!!!!!!!\n");
           error = std::numeric_limits<float>::max();
         } else if (denom != 0.0){
           error = std::max(error, num/denom);
         }
+#ifdef GPU_DEBUG
+        errors_cpu[ERR_INDEX(i,j,k)] = num/denom;
+#endif
       }
     }
   }
-  double cpu_time_end = CkWallTimer();
-//#else
-  float *delu_n_gpu = (float *)malloc(delu_n_size);
-  double gpu_time_start = CkWallTimer();
-  float error_gpu = invokeDecisionKernel(u, delu_n_gpu, refine_filter, dx, dy, dz, block_width);
-  double gpu_time_end = CkWallTimer();
 
-  /*
+#ifdef GPU_DEBUG
+  double cpu_time_end = CkWallTimer();
+#endif
+#endif // !defined(USE_GPU) || defined(GPU_DEBUG)
+
+
+#if defined(USE_GPU) || defined(GPU_DEBUG)
+#ifdef GPU_DEBUG
+  float *delu_n_gpu = (float *)malloc(delu_n_size);
+  float *errors_gpu = (float *)malloc(errors_size);
+
+  double gpu_time_start = CkWallTimer();
+  float error_gpu = invokeDecisionKernel(u, errors_gpu, delu_n_gpu, refine_filter, dx, dy, dz, block_width);
+  double gpu_time_end = CkWallTimer();
+#else
+  float error_gpu = invokeDecisionKernel(u, refine_filter, dx, dy, dz, block_width);
+#endif
+
+#ifdef GPU_DEBUG
   for (int i = 0; i < delu_n_size / sizeof(float); i++) {
     if (delu_n_cpu[i] != delu_n_gpu[i])
       CkPrintf("delu_n[%d]: %f / %f\n", i, delu_n_cpu[i], delu_n_gpu[i]);
   }
-  */
 
-  for (int i = 0; i < block_width-2; i++) {
-    for (int j = 0; j < block_height-2; j++) {
-      for (int k = 0; k < block_depth-2; k++) {
-        for (int d = 0; d < 3 * numDims * numDims; d++) {
-          int index = INDEX4C(i,j,k,d);
-          if (delu_n_cpu[index] != delu_n_gpu[index])
-            CkPrintf("delu_n[%d][%d][%d][%d](%d): %f / %f\n", i, j, k, d, index, delu_n_cpu[index], delu_n_gpu[index]);
-        }
-      }
-    }
+  for (int i = 0; i < errors_size / sizeof(float); i++) {
+    if (errors_cpu[i] != errors_gpu[i])
+      CkPrintf("errors[%d]: %.20f / %.20f\n", i, errors_cpu[i], errors_gpu[i]);
   }
 
   free(delu_n_cpu);
   free(delu_n_gpu);
+  free(errors_cpu);
+  free(errors_gpu);
 #undef INDEX4C
+#undef ERR_INDEX
 
   CkPrintf("[Result]\tError:\t%20.16f / %20.16f\n", error, error_gpu);
   CkPrintf("\t\tTime:\t%20.6lf / %20.6lf\n", (cpu_time_end - cpu_time_start), (gpu_time_end - gpu_time_start));
-//#endif
+#endif
+
+#endif // defined(USE_GPU) || defined(GPU_DEBUG)
 
   error = sqrt(error);
   if(error < derefine_cutoff && thisIndex.getDepth() > min_depth) return COARSEN;
