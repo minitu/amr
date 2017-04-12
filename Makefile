@@ -1,4 +1,4 @@
-DEBUG=-DGPU_DEBUG
+DEFINE=-DTIMER #-DUSE_GPU #-DGPU_DEBUG
 CHARMHOME ?= ~/lustre/charm-cuda
 CHARMC ?= $(CHARMHOME)/bin/charmc -I.
 CXX=$(CHARMC)

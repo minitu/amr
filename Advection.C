@@ -33,7 +33,7 @@ extern int max_iterations, refine_frequency, lb_freq;
 
 #ifdef GPU_DEBUG
 extern float invokeDecisionKernel(float *, float *, float *, float, float, float, float, int);
-#elif defined(USE_GPU)
+#elif defined(USE_GPU) || defined(TIMER)
 extern float invokeDecisionKernel(float *, float, float, float, float, int);
 #endif
 
@@ -1018,8 +1018,8 @@ Decision Advection::getGranularityDecision(){
   float delz = 0.5/dz;
   float error=0;
 
-#if !defined(USE_GPU) || defined(GPU_DEBUG)
-#ifdef GPU_DEBUG
+#if !defined(USE_GPU) || defined(TIMER) || defined(GPU_DEBUG)
+#ifdef TIMER
   double cpu_time_start = CkWallTimer();
 #endif
   for(int i=1; i <= block_width; i++){
@@ -1105,23 +1105,27 @@ Decision Advection::getGranularityDecision(){
     }
   }
 
-#ifdef GPU_DEBUG
+#ifdef TIMER
   double cpu_time_end = CkWallTimer();
 #endif
-#endif // !defined(USE_GPU) || defined(GPU_DEBUG)
+#endif // !defined(USE_GPU) || defined(TIMER) || defined(GPU_DEBUG)
 
 
-#if defined(USE_GPU) || defined(GPU_DEBUG)
+#if defined(USE_GPU) || defined(TIMER) || defined(GPU_DEBUG)
 #ifdef GPU_DEBUG
   float *delu_n_gpu = (float *)malloc(delu_n_size);
   float *errors_gpu = (float *)malloc(errors_size);
 
-  double gpu_time_start = CkWallTimer();
   float error_gpu = invokeDecisionKernel(u, errors_gpu, delu_n_gpu, refine_filter, dx, dy, dz, block_width);
-  double gpu_time_end = CkWallTimer();
 #else
-  float error_gpu = invokeDecisionKernel(u, refine_filter, dx, dy, dz, block_width);
+#ifdef TIMER
+  double gpu_time_start = CkWallTimer();
 #endif
+  float error_gpu = invokeDecisionKernel(u, refine_filter, dx, dy, dz, block_width);
+#ifdef TIMER
+  double gpu_time_end = CkWallTimer();
+#endif
+#endif // GPU_DEBUG
 
 #ifdef GPU_DEBUG
   for (int i = 0; i < delu_n_size / sizeof(float); i++) {
@@ -1140,12 +1144,14 @@ Decision Advection::getGranularityDecision(){
   free(errors_gpu);
 #undef INDEX4C
 #undef ERR_INDEX
+#endif
 
+#ifdef TIMER
   CkPrintf("[Result]\tError:\t%20.16f / %20.16f\n", error, error_gpu);
   CkPrintf("\t\tTime:\t%20.6lf / %20.6lf\n", (cpu_time_end - cpu_time_start), (gpu_time_end - gpu_time_start));
 #endif
 
-#endif // defined(USE_GPU) || defined(GPU_DEBUG)
+#endif // defined(USE_GPU) || defined(TIMER) || defined(GPU_DEBUG)
 
   error = sqrt(error);
   if(error < derefine_cutoff && thisIndex.getDepth() > min_depth) return COARSEN;
