@@ -1,4 +1,4 @@
-DEFINE=-DTIMER #-DUSE_GPU #-DGPU_DEBUG
+DEFINE=
 CHARMHOME ?= ../charm-cuda
 CHARMC ?= $(CHARMHOME)/bin/charmc -I.
 CXX=$(CHARMC)
@@ -9,7 +9,7 @@ NVCC_INC = -I$(CUDATOOLKIT_HOME)/include -I$(CHARMHOME)/src/arch/cuda/hybridAPI 
 CHARMINC = -I$(CHARMHOME)/include
 LD_LIBS = #-lcublas
 
-OPTS ?= -O3 -g #-DUSE_GPU
+OPTS ?= -O0 -g
 CXXFLAGS += $(DEFINE) -DAMR_REVISION=$(REVNUM) $(OPTS)
 
 OBJS = OctIndex.o Advection.o Main.o AdvectionCU.o
