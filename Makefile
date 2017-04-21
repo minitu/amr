@@ -4,19 +4,23 @@ CHARMC ?= $(CHARMHOME)/bin/charmc -I.
 CXX=$(CHARMC)
 CUDATOOLKIT_HOME ?= /usr/local/cuda
 NVCC ?= $(CUDATOOLKIT_HOME)/bin/nvcc
-NVCC_FLAGS = $(DEFINE) -c --std=c++11 #-O3 -use_fast_math
+NVCC_FLAGS = $(DEFINE) -c --std=c++11 -O3
 NVCC_INC = -I$(CUDATOOLKIT_HOME)/include -I$(CHARMHOME)/src/arch/cuda/hybridAPI -I./lib/cub-1.6.4
 CHARMINC = -I$(CHARMHOME)/include
-LD_LIBS = #-lcublas
+LD_LIBS =
 
 OPTS ?= -O0 -g
 CXXFLAGS += $(DEFINE) -DAMR_REVISION=$(REVNUM) $(OPTS)
 
-OBJS = OctIndex.o Advection.o Main.o AdvectionCU.o
+OBJS = OctIndex.o Advection.o Main.o
+CUDA_OBJS = $(OBJS) AdvectionCU.o
 
-all: advection
+all: advection advection-cuda
 
 advection: $(OBJS)
+	$(CHARMC) $(CXXFLAGS) $(LDFLAGS) -language charm++ -o $@ $^ $(LD_LIBS) -module DistributedLB
+
+advection-cuda: $(CUDA_OBJS)
 	$(CHARMC) $(CXXFLAGS) $(LDFLAGS) -language charm++ -o $@ $^ $(LD_LIBS) -module DistributedLB
 
 Advection.decl.h Main.decl.h: advection.ci.stamp
@@ -30,11 +34,14 @@ OctIndex.o: OctIndex.C OctIndex.h Advection.decl.h
 AdvectionCU.o: Advection.cu
 	$(NVCC) $(NVCC_FLAGS) $(NVCC_INC) $(CHARMINC) -o AdvectionCU.o Advection.cu
 
-test: all
+test: advection
 	./charmrun +p8 ++local ./advection 3 32 30 9 +balancer DistributedLB
 
-clean:
-	rm -f *.decl.h *.def.h conv-host *.o advection charmrun advection.ci.stamp
+test-cuda: advection-cuda
+	./charmrun +p8 ++local ./advection-cuda 3 32 30 9 +balancer DistributedLB
 
-bgtest: all
+clean:
+	rm -f *.decl.h *.def.h conv-host *.o advection advection-cuda charmrun advection.ci.stamp
+
+bgtest: advection
 	./charmrun advection +p4 10 +x2 +y2 +z2

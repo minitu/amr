@@ -216,6 +216,8 @@ class AdvectionGroup : public CBase_AdvectionGroup {
   std::map<int, int> maxLoad;
   std::map<int, float> avgLoad;
  public:
+  float ****delu, ****delua;
+  float delu2[numDims2], delu3[numDims2], delu4[numDims2];
   AdvectionGroup_SDAG_CODE
   AdvectionGroup();
   AdvectionGroup(CkMigrateMessage *m);

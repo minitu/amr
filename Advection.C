@@ -37,8 +37,6 @@ extern float invokeDecisionKernel(float *, float *, float *, float, float, float
 extern float invokeDecisionKernel(float *, float, float, float, float, int);
 #endif
 
-float ****delu = NULL, ****delua = NULL;
-float delu2[numDims2] = {}, delu3[numDims2] = {}, delu4[numDims2] = {};
 float refine_filter = 0.01;
 float refine_cutoff=0.2, derefine_cutoff=0.05;
 
@@ -1018,6 +1016,8 @@ Decision Advection::getGranularityDecision(){
   float delz = 0.5/dz;
   float error=0;
 
+  AdvectionGroup *ppcGrp = ppc.ckLocalBranch();
+
 #if !defined(USE_GPU) || defined(TIMER) || defined(GPU_DEBUG)
 #ifdef TIMER
   double cpu_time_start = CkWallTimer();
@@ -1026,16 +1026,16 @@ Decision Advection::getGranularityDecision(){
     for(int j=1; j<=block_height; j++){
       for(int k=1; k<=block_depth; k++){
         // d/dx
-        delu[0][i][j][k] = (u[index(i+1, j, k)] - u[index(i-1, j, k)])*delx;
-        delua[0][i][j][k] = (abs(u[index(i+1, j, k)]) + abs(u[index(i-1, j, k)]))*delx;
+        ppcGrp->delu[0][i][j][k] = (u[index(i+1, j, k)] - u[index(i-1, j, k)])*delx;
+        ppcGrp->delua[0][i][j][k] = (abs(u[index(i+1, j, k)]) + abs(u[index(i-1, j, k)]))*delx;
 
         // d/dy
-        delu[1][i][j][k] = (u[index(i, j+1, k)] - u[index(i, j-1, k)])*dely;
-        delua[1][i][j][k] = (abs(u[index(i, j+1, k)]) + abs(u[index(i, j-1, k)]))*dely;
+        ppcGrp->delu[1][i][j][k] = (u[index(i, j+1, k)] - u[index(i, j-1, k)])*dely;
+        ppcGrp->delua[1][i][j][k] = (abs(u[index(i, j+1, k)]) + abs(u[index(i, j-1, k)]))*dely;
 
         // d/dz
-        delu[2][i][j][k] = (u[index(i, j, k+1)] - u[index(i, j, k-1)])*delz;
-        delua[2][i][j][k] = (abs(u[index(i, j, k+1)]) + abs(u[index(i, j, k-1)]))*delz;
+        ppcGrp->delu[2][i][j][k] = (u[index(i, j, k+1)] - u[index(i, j, k-1)])*delz;
+        ppcGrp->delua[2][i][j][k] = (abs(u[index(i, j, k+1)]) + abs(u[index(i, j, k-1)]))*delz;
       }
     }
   }
@@ -1056,31 +1056,31 @@ Decision Advection::getGranularityDecision(){
     for (int j=jstart;j<=jend;j++){
       for (int k=kstart;k<=kend;k++){
         for (int d = 0; d < numDims; ++d) {
-          delu2[3*d+0] = (delu[d][i+1][j][k] - delu[d][i-1][j][k])*delx;
-          delu3[3*d+0] = (abs(delu[d][i+1][j][k]) + abs(delu[d][i-1][j][k]))*delx;
-          delu4[3*d+0] = (delua[d][i+1][j][k] + delua[d][i-1][j][k])*delx;
+          ppcGrp->delu2[3*d+0] = (ppcGrp->delu[d][i+1][j][k] - ppcGrp->delu[d][i-1][j][k])*delx;
+          ppcGrp->delu3[3*d+0] = (abs(ppcGrp->delu[d][i+1][j][k]) + abs(ppcGrp->delu[d][i-1][j][k]))*delx;
+          ppcGrp->delu4[3*d+0] = (ppcGrp->delua[d][i+1][j][k] + ppcGrp->delua[d][i-1][j][k])*delx;
 #ifdef GPU_DEBUG
-          delu_n_cpu[INDEX4C(i-2,j-2,k-2,3*d+0)] = delu2[3*d+0];
-          delu_n_cpu[INDEX4C(i-2,j-2,k-2,9+3*d+0)] = delu3[3*d+0];
-          delu_n_cpu[INDEX4C(i-2,j-2,k-2,18+3*d+0)] = delu4[3*d+0];
+          delu_n_cpu[INDEX4C(i-2,j-2,k-2,3*d+0)] = ppcGrp->delu2[3*d+0];
+          delu_n_cpu[INDEX4C(i-2,j-2,k-2,9+3*d+0)] = ppcGrp->delu3[3*d+0];
+          delu_n_cpu[INDEX4C(i-2,j-2,k-2,18+3*d+0)] = ppcGrp->delu4[3*d+0];
 #endif
 
-          delu2[3*d+1] = (delu[d][i][j+1][k] - delu[d][i][j-1][k])*dely;
-          delu3[3*d+1] = (abs(delu[d][i][j+1][k]) + abs(delu[d][i][j-1][k]))*dely;
-          delu4[3*d+1] = (delua[d][i][j+1][k] + delua[d][i][j-1][k])*dely;
+          ppcGrp->delu2[3*d+1] = (ppcGrp->delu[d][i][j+1][k] - ppcGrp->delu[d][i][j-1][k])*dely;
+          ppcGrp->delu3[3*d+1] = (abs(ppcGrp->delu[d][i][j+1][k]) + abs(ppcGrp->delu[d][i][j-1][k]))*dely;
+          ppcGrp->delu4[3*d+1] = (ppcGrp->delua[d][i][j+1][k] + ppcGrp->delua[d][i][j-1][k])*dely;
 #ifdef GPU_DEBUG
-          delu_n_cpu[INDEX4C(i-2,j-2,k-2,3*d+1)] = delu2[3*d+1];
-          delu_n_cpu[INDEX4C(i-2,j-2,k-2,9+3*d+1)] = delu3[3*d+1];
-          delu_n_cpu[INDEX4C(i-2,j-2,k-2,18+3*d+1)] = delu4[3*d+1];
+          delu_n_cpu[INDEX4C(i-2,j-2,k-2,3*d+1)] = ppcGrp->delu2[3*d+1];
+          delu_n_cpu[INDEX4C(i-2,j-2,k-2,9+3*d+1)] = ppcGrp->delu3[3*d+1];
+          delu_n_cpu[INDEX4C(i-2,j-2,k-2,18+3*d+1)] = ppcGrp->delu4[3*d+1];
 #endif
 
-          delu2[3*d+2] = (delu[d][i][j][k+1] - delu[d][i][j][k-1])*delz;
-          delu3[3*d+2] = (abs(delu[d][i][j][k+1]) + abs(delu[d][i][j][k-1]))*delz;
-          delu4[3*d+2] = (delua[d][i][j][k+1] + delua[d][i][j][k-1])*delz;
+          ppcGrp->delu2[3*d+2] = (ppcGrp->delu[d][i][j][k+1] - ppcGrp->delu[d][i][j][k-1])*delz;
+          ppcGrp->delu3[3*d+2] = (abs(ppcGrp->delu[d][i][j][k+1]) + abs(ppcGrp->delu[d][i][j][k-1]))*delz;
+          ppcGrp->delu4[3*d+2] = (ppcGrp->delua[d][i][j][k+1] + ppcGrp->delua[d][i][j][k-1])*delz;
 #ifdef GPU_DEBUG
-          delu_n_cpu[INDEX4C(i-2,j-2,k-2,3*d+2)] = delu2[3*d+2];
-          delu_n_cpu[INDEX4C(i-2,j-2,k-2,9+3*d+2)] = delu3[3*d+2];
-          delu_n_cpu[INDEX4C(i-2,j-2,k-2,18+3*d+2)] = delu4[3*d+2];
+          delu_n_cpu[INDEX4C(i-2,j-2,k-2,3*d+2)] = ppcGrp->delu2[3*d+2];
+          delu_n_cpu[INDEX4C(i-2,j-2,k-2,9+3*d+2)] = ppcGrp->delu3[3*d+2];
+          delu_n_cpu[INDEX4C(i-2,j-2,k-2,18+3*d+2)] = ppcGrp->delu4[3*d+2];
 #endif
         }
 
@@ -1089,8 +1089,8 @@ Decision Advection::getGranularityDecision(){
         float denom = 0.;
 
         for (int kk = 0; kk < numDims2; kk++){  // kk= 1, 2, 3, 4, 5, ... 9
-          num = num + pow(delu2[kk],2.);
-          denom = denom + pow(delu3[kk], 2.) + (refine_filter*delu4[kk])*2;
+          num = num + pow(ppcGrp->delu2[kk],2.);
+          denom = denom + pow(ppcGrp->delu3[kk], 2.) + (refine_filter*ppcGrp->delu4[kk])*2;
         }
 
         if (denom == 0. && num != 0.){
