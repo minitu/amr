@@ -1,27 +1,27 @@
-DEFINE=
 CHARMHOME ?= ../charm-cuda
+DEFINE= -DTIMER # Possible flags: -DUSE_GPU, -DTIMER
+
 CHARMC ?= $(CHARMHOME)/bin/charmc -I.
 CXX=$(CHARMC)
+OPTS ?= -O0 -g
+CXXFLAGS += $(DEFINE) -DAMR_REVISION=$(REVNUM) $(OPTS)
+LD_LIBS =
+OBJS = OctIndex.o Advection.o Main.o
+
 CUDATOOLKIT_HOME ?= /usr/local/cuda
 NVCC ?= $(CUDATOOLKIT_HOME)/bin/nvcc
 NVCC_FLAGS = $(DEFINE) -c --std=c++11 -O3
 NVCC_INC = -I$(CUDATOOLKIT_HOME)/include -I$(CHARMHOME)/src/arch/cuda/hybridAPI -I./lib/cub-1.6.4
 CHARMINC = -I$(CHARMHOME)/include
-LD_LIBS =
+GPU_OBJS = $(OBJS) AdvectionCU.o
 
-OPTS ?= -O0 -g
-CXXFLAGS += $(DEFINE) -DAMR_REVISION=$(REVNUM) $(OPTS)
-
-OBJS = OctIndex.o Advection.o Main.o
-CUDA_OBJS = $(OBJS) AdvectionCU.o
-
-all: advection advection-cuda
+all: advection
 
 advection: $(OBJS)
 	$(CHARMC) $(CXXFLAGS) $(LDFLAGS) -language charm++ -o $@ $^ $(LD_LIBS) -module DistributedLB
 
-advection-cuda: $(CUDA_OBJS)
-	$(CHARMC) $(CXXFLAGS) $(LDFLAGS) -language charm++ -o $@ $^ $(LD_LIBS) -module DistributedLB
+cuda: $(GPU_OBJS)
+	$(CHARMC) $(CXXFLAGS) $(LDFLAGS) -language charm++ -o advection-$@ $^ $(LD_LIBS) -module DistributedLB
 
 Advection.decl.h Main.decl.h: advection.ci.stamp
 advection.ci.stamp: advection.ci

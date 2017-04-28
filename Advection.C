@@ -31,9 +31,7 @@ extern int max_iterations, refine_frequency, lb_freq;
 //extern bool inInitialMeshGenerationPhase;
 #define inInitialMeshGenerationPhase (meshGenIterations <= max_depth)
 
-#ifdef GPU_DEBUG
-extern float invokeDecisionKernel(float *, float *, float *, float, float, float, float, int);
-#elif defined(USE_GPU) || defined(TIMER)
+#ifdef USE_GPU
 extern float invokeDecisionKernel(float *, float, float, float, float, int);
 #endif
 
@@ -208,6 +206,11 @@ inline bool getOctantRange(int octant,
 AdvectionGroup::AdvectionGroup()
   :workUnitCount(0)
 {
+#ifdef TIMER
+  time_sum = 0;
+  time_cnt = 0;
+#endif
+
   delu = new float***[numDims];
   delua = new float***[numDims];
 
@@ -305,6 +308,11 @@ void AdvectionGroup::printLogs(){
       ckout << it->first << "," << int(avgLoad[it->first]*100)/100. << "," << minLoad[it->first] << "," << maxLoad[it->first] << " ";
     }
     ckout << endl;
+
+#ifdef TIMER
+    ckout << "local error calculation average time: " << time_sum/time_cnt << endl;
+#endif
+
     CkExit();
 }
 
@@ -1018,9 +1026,11 @@ Decision Advection::getGranularityDecision(){
 
   AdvectionGroup *ppcGrp = ppc.ckLocalBranch();
 
-#if !defined(USE_GPU) || defined(TIMER) || defined(GPU_DEBUG)
+#if !defined(USE_GPU)
+  /********** CPU CODE *********/
+
 #ifdef TIMER
-  double cpu_time_start = CkWallTimer();
+  double time_start = CkWallTimer();
 #endif
   for(int i=1; i <= block_width; i++){
     for(int j=1; j<=block_height; j++){
@@ -1040,15 +1050,6 @@ Decision Advection::getGranularityDecision(){
     }
   }
 
-#ifdef GPU_DEBUG
-#define INDEX4C(i,j,k,d) ((((d) * (block_depth-2) + (k)) * (block_height-2) + (j)) * (block_width-2) + (i))
-#define ERR_INDEX(i,j,k) ((((k)-2) * (block_height-2) + ((j)-2)) * (block_width-2) + ((i)-2))
-  size_t errors_size = sizeof(float) * (block_width-2) * (block_height-2) * (block_depth-2);
-  float *errors_cpu = (float *)malloc(errors_size);
-  size_t delu_n_size = sizeof(float)*(block_width-2)*(block_height-2)*(block_depth-2)*3*numDims*numDims;
-  float *delu_n_cpu = (float *)malloc(delu_n_size);
-#endif
-
   int istart=2, iend=block_width-1,
       jstart=2, jend=block_height-1,
       kstart=2, kend=block_depth-1;
@@ -1059,29 +1060,14 @@ Decision Advection::getGranularityDecision(){
           ppcGrp->delu2[3*d+0] = (ppcGrp->delu[d][i+1][j][k] - ppcGrp->delu[d][i-1][j][k])*delx;
           ppcGrp->delu3[3*d+0] = (abs(ppcGrp->delu[d][i+1][j][k]) + abs(ppcGrp->delu[d][i-1][j][k]))*delx;
           ppcGrp->delu4[3*d+0] = (ppcGrp->delua[d][i+1][j][k] + ppcGrp->delua[d][i-1][j][k])*delx;
-#ifdef GPU_DEBUG
-          delu_n_cpu[INDEX4C(i-2,j-2,k-2,3*d+0)] = ppcGrp->delu2[3*d+0];
-          delu_n_cpu[INDEX4C(i-2,j-2,k-2,9+3*d+0)] = ppcGrp->delu3[3*d+0];
-          delu_n_cpu[INDEX4C(i-2,j-2,k-2,18+3*d+0)] = ppcGrp->delu4[3*d+0];
-#endif
 
           ppcGrp->delu2[3*d+1] = (ppcGrp->delu[d][i][j+1][k] - ppcGrp->delu[d][i][j-1][k])*dely;
           ppcGrp->delu3[3*d+1] = (abs(ppcGrp->delu[d][i][j+1][k]) + abs(ppcGrp->delu[d][i][j-1][k]))*dely;
           ppcGrp->delu4[3*d+1] = (ppcGrp->delua[d][i][j+1][k] + ppcGrp->delua[d][i][j-1][k])*dely;
-#ifdef GPU_DEBUG
-          delu_n_cpu[INDEX4C(i-2,j-2,k-2,3*d+1)] = ppcGrp->delu2[3*d+1];
-          delu_n_cpu[INDEX4C(i-2,j-2,k-2,9+3*d+1)] = ppcGrp->delu3[3*d+1];
-          delu_n_cpu[INDEX4C(i-2,j-2,k-2,18+3*d+1)] = ppcGrp->delu4[3*d+1];
-#endif
 
           ppcGrp->delu2[3*d+2] = (ppcGrp->delu[d][i][j][k+1] - ppcGrp->delu[d][i][j][k-1])*delz;
           ppcGrp->delu3[3*d+2] = (abs(ppcGrp->delu[d][i][j][k+1]) + abs(ppcGrp->delu[d][i][j][k-1]))*delz;
           ppcGrp->delu4[3*d+2] = (ppcGrp->delua[d][i][j][k+1] + ppcGrp->delua[d][i][j][k-1])*delz;
-#ifdef GPU_DEBUG
-          delu_n_cpu[INDEX4C(i-2,j-2,k-2,3*d+2)] = ppcGrp->delu2[3*d+2];
-          delu_n_cpu[INDEX4C(i-2,j-2,k-2,9+3*d+2)] = ppcGrp->delu3[3*d+2];
-          delu_n_cpu[INDEX4C(i-2,j-2,k-2,18+3*d+2)] = ppcGrp->delu4[3*d+2];
-#endif
         }
 
         // compute the error
@@ -1098,61 +1084,36 @@ Decision Advection::getGranularityDecision(){
         } else if (denom != 0.0){
           error = std::max(error, num/denom);
         }
-#ifdef GPU_DEBUG
-        errors_cpu[ERR_INDEX(i,j,k)] = num/denom;
-#endif
       }
     }
   }
 
 #ifdef TIMER
-  double cpu_time_end = CkWallTimer();
+  double time_end = CkWallTimer();
 #endif
-#endif // !defined(USE_GPU) || defined(TIMER) || defined(GPU_DEBUG)
 
+#else // #elif defined(USE_GPU)
+  /********** GPU CODE *********/
 
-#if defined(USE_GPU) || defined(TIMER) || defined(GPU_DEBUG)
-#ifdef GPU_DEBUG
-  float *delu_n_gpu = (float *)malloc(delu_n_size);
-  float *errors_gpu = (float *)malloc(errors_size);
-
-  float error_gpu = invokeDecisionKernel(u, errors_gpu, delu_n_gpu, refine_filter, dx, dy, dz, block_width);
-#else
 #ifdef TIMER
-  double gpu_time_start = CkWallTimer();
+  double time_start = CkWallTimer();
 #endif
+
+  // execute GPU kernel
   float error_gpu = invokeDecisionKernel(u, refine_filter, dx, dy, dz, block_width);
-#ifdef TIMER
-  double gpu_time_end = CkWallTimer();
-#endif
-#endif // GPU_DEBUG
-
-#ifdef GPU_DEBUG
-  for (int i = 0; i < delu_n_size / sizeof(float); i++) {
-    if (delu_n_cpu[i] != delu_n_gpu[i])
-      CkPrintf("delu_n[%d]: %f / %f\n", i, delu_n_cpu[i], delu_n_gpu[i]);
-  }
-
-  for (int i = 0; i < errors_size / sizeof(float); i++) {
-    if (errors_cpu[i] != errors_gpu[i])
-      CkPrintf("errors[%d]: %.20f / %.20f\n", i, errors_cpu[i], errors_gpu[i]);
-  }
-
-  free(delu_n_cpu);
-  free(delu_n_gpu);
-  free(errors_cpu);
-  free(errors_gpu);
-#undef INDEX4C
-#undef ERR_INDEX
-#endif
 
 #ifdef TIMER
-  CkPrintf("[Result]\tError:\t%20.16f / %20.16f\n", error, error_gpu);
-  CkPrintf("\t\tTime:\t%20.6lf / %20.6lf\n", (cpu_time_end - cpu_time_start), (gpu_time_end - gpu_time_start));
+  double time_end = CkWallTimer();
 #endif
 
-#endif // defined(USE_GPU) || defined(TIMER) || defined(GPU_DEBUG)
+  error = error_gpu;
+#endif // USE_GPU
 
+#ifdef TIMER
+  double time_dur = time_end - time_start;
+  ppcGrp->addTime(time_dur);
+#endif
+  
   error = sqrt(error);
   if(error < derefine_cutoff && thisIndex.getDepth() > min_depth) return COARSEN;
   else if(error > refine_cutoff && thisIndex.getDepth() < max_depth) return REFINE;  

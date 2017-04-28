@@ -215,6 +215,10 @@ class AdvectionGroup : public CBase_AdvectionGroup {
   std::map<int, int> minLoad;
   std::map<int, int> maxLoad;
   std::map<int, float> avgLoad;
+#ifdef TIMER
+  double time_sum;
+  int time_cnt;
+#endif
  public:
   float ****delu, ****delua;
   float delu2[numDims2], delu3[numDims2], delu4[numDims2];
@@ -243,6 +247,13 @@ class AdvectionGroup : public CBase_AdvectionGroup {
 
   void reduceWorkUnits();
   void meshGenerationPhaseIsOver();
+
+#ifdef TIMER
+  void addTime(double time) {
+    time_sum += time;
+    time_cnt++;
+  }
+#endif
 };
 
 extern CProxy_AdvectionGroup ppc;

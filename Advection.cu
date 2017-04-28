@@ -83,15 +83,8 @@ __global__ void decisionKernel1(float *u, float *delu, float *delua, float dx, f
 #undef INDEX4
 }
 
-#ifdef GPU_DEBUG
-__global__ void decisionKernel2(float *delu, float *delua, float *delu_n_g, float *errors, float refine_filter, float dx, float dy, float dz, int block_size) {
-#else
 __global__ void decisionKernel2(float *delu, float *delua, float *errors, float refine_filter, float dx, float dy, float dz, int block_size) {
-#endif
 #define INDEX4(d,i,j,k) ((((d) * (block_size+2) + (k)) * (block_size+2) + (j)) * (block_size+2) + (i))
-#ifdef GPU_DEBUG
-#define INDEX4C(i,j,k,d) ((((d) * (block_size-2) + (k)) * (block_size-2) + (j)) * (block_size-2) + (i))
-#endif
 #define ERR_INDEX(i,j,k) ((((k)-2) * (block_size-2) + ((j)-2)) * (block_size-2) + ((i)-2))
   float delx = 0.5/dx;
   float dely = 0.5/dy;
@@ -143,11 +136,6 @@ __global__ void decisionKernel2(float *delu, float *delua, float *errors, float 
       delu_n[0][3*d+0] = (delu_pos - delu_neg)*delx;
       delu_n[1][3*d+0] = (fabsf(delu_pos) + fabsf(delu_neg))*delx;
       delu_n[2][3*d+0] = (delua_pos + delua_neg)*delx;
-#ifdef GPU_DEBUG
-      delu_n_g[INDEX4C(gx-2,gy-2,gz-2,3*d+0)] = delu_n[0][3*d+0];
-      delu_n_g[INDEX4C(gx-2,gy-2,gz-2,9+3*d+0)] = delu_n[1][3*d+0];
-      delu_n_g[INDEX4C(gx-2,gy-2,gz-2,18+3*d+0)] = delu_n[2][3*d+0];
-#endif
 
 #if USE_SHARED_MEM
       delu_pos = (ty < SUB_BLOCK_SIZE-1) ? (delu_s[d][tx][ty+1][tz]) : (delu[INDEX4(d,gx,gy+1,gz)]);
@@ -163,11 +151,6 @@ __global__ void decisionKernel2(float *delu, float *delua, float *errors, float 
       delu_n[0][3*d+1] = (delu_pos - delu_neg)*dely;
       delu_n[1][3*d+1] = (fabsf(delu_pos) + fabsf(delu_neg))*dely;
       delu_n[2][3*d+1] = (delua_pos + delua_neg)*dely;
-#ifdef GPU_DEBUG
-      delu_n_g[INDEX4C(gx-2,gy-2,gz-2,3*d+1)] = delu_n[0][3*d+1];
-      delu_n_g[INDEX4C(gx-2,gy-2,gz-2,9+3*d+1)] = delu_n[1][3*d+1];
-      delu_n_g[INDEX4C(gx-2,gy-2,gz-2,18+3*d+1)] = delu_n[2][3*d+1];
-#endif
 
 #if USE_SHARED_MEM
       delu_pos = (tz < SUB_BLOCK_SIZE-1) ? (delu_s[d][tx][ty][tz+1]) : (delu[INDEX4(d,gx,gy,gz+1)]);
@@ -183,11 +166,6 @@ __global__ void decisionKernel2(float *delu, float *delua, float *errors, float 
       delu_n[0][3*d+2] = (delu_pos - delu_neg)*delz;
       delu_n[1][3*d+2] = (fabsf(delu_pos) + fabsf(delu_neg))*delz;
       delu_n[2][3*d+2] = (delua_pos + delua_neg)*delz;
-#ifdef GPU_DEBUG
-      delu_n_g[INDEX4C(gx-2,gy-2,gz-2,3*d+2)] = delu_n[0][3*d+2];
-      delu_n_g[INDEX4C(gx-2,gy-2,gz-2,9+3*d+2)] = delu_n[1][3*d+2];
-      delu_n_g[INDEX4C(gx-2,gy-2,gz-2,18+3*d+2)] = delu_n[2][3*d+2];
-#endif
     }
 
     for (int dd = 0; dd < NUM_DIMS * NUM_DIMS; dd++) {
@@ -206,36 +184,33 @@ __global__ void decisionKernel2(float *delu, float *delua, float *errors, float 
     errors[ERR_INDEX(gx,gy,gz)] = error;
   }
 #undef INDEX4
-#ifdef GPU_DEBUG
-#undef INDEX4C
-#endif
 #undef ERR_INDEX
 }
 
-#ifdef GPU_DEBUG
-float invokeDecisionKernel(float *u, float *errors, float *delu_n, float refine_filter, float dx, float dy, float dz, int block_size) {
-#else
 float invokeDecisionKernel(float *u, float refine_filter, float dx, float dy, float dz, int block_size) {
-#endif
   float error; // maximum error value to be returned
 
 #if USE_GPUMANAGER
-  /***** With GPUManager *****/
+  /********** With GPUManager **********/
+  /*
+  float h_error = (float *)hapi_poolMalloc(sizeof(float));
+  size_t u_size = sizeof(float)*(block_size+2)*(block_size+2)*(block_size+2);
+  size_t delu_size = NUM_DIMS * u_size;
+  size_t errors_size = sizeof(float)*(block_size-2)*(block_size-2)*(block_size-2);
 
+  workRequest *amr = hapi_createWorkRequest();
+  amr->addBufferInfo(-1, h_error, sizeof(float), cudaMemcpyDeviceToHost, 1);
+  amr->addBufferInfo(-1, u, u_size, cudaMemcpyDeviceToHost, 1);
+  amr->addBufferInfo(-1, NULL, delu_size, -1, 1); // device-only memory
+  amr->addBufferInfo(-1, NULL, delu_size, -1, 1); // device-only memory
+  */
 #else
-  /***** Without GPUManager *****/
+  /********** Without GPUManager **********/
 
   // pinned host memory allocations
   float *h_error;
   gpuSafe(cudaMallocHost(&h_error, sizeof(float)));
   size_t errors_size = sizeof(float)*(block_size-2)*(block_size-2)*(block_size-2);
-#ifdef GPU_DEBUG
-  float *h_delu_n;
-  size_t delu_n_size = sizeof(float)*(block_size-2)*(block_size-2)*(block_size-2)*3*NUM_DIMS*NUM_DIMS;
-  gpuSafe(cudaMallocHost(&h_delu_n, delu_n_size));
-  float *h_errors;
-  gpuSafe(cudaMallocHost(&h_errors, errors_size));
-#endif
 
   // create stream
   cudaStream_t decisionStream;
@@ -252,10 +227,6 @@ float invokeDecisionKernel(float *u, float refine_filter, float dx, float dy, fl
   gpuSafe(cudaMalloc(&d_error, sizeof(float)));
   gpuSafe(cudaMemset(d_error, 0, sizeof(float)));
   gpuSafe(cudaMalloc(&d_errors, errors_size));
-#ifdef GPU_DEBUG
-  float *d_delu_n;
-  gpuSafe(cudaMalloc(&d_delu_n, delu_n_size));
-#endif
 
   // copy u to device
   gpuSafe(cudaMemcpyAsync(d_u, u, u_size, cudaMemcpyHostToDevice, decisionStream));
@@ -270,27 +241,11 @@ float invokeDecisionKernel(float *u, float refine_filter, float dx, float dy, fl
   // execute second kernel to calculate errors
   sub_block_cnt = ceil((float)block_size/SUB_BLOCK_SIZE);
   dimGrid = dim3(sub_block_cnt, sub_block_cnt, sub_block_cnt);
-#ifdef GPU_DEBUG
-  decisionKernel2<<<dimGrid, dimBlock, 0, decisionStream>>>(d_delu, d_delua, d_delu_n, d_errors, refine_filter, dx, dy, dz, block_size);
-#else
   decisionKernel2<<<dimGrid, dimBlock, 0, decisionStream>>>(d_delu, d_delua, d_errors, refine_filter, dx, dy, dz, block_size);
-#endif
   gpuCheck();
-
-#ifdef GPU_DEBUG
-  // copy data to be compared from the device
-  gpuSafe(cudaMemcpyAsync(h_delu_n, d_delu_n, delu_n_size, cudaMemcpyDeviceToHost, decisionStream));
-  gpuSafe(cudaMemcpyAsync(h_errors, d_errors, errors_size, cudaMemcpyDeviceToHost, decisionStream));
-#endif
 
   // wait until completion
   gpuSafe(cudaStreamSynchronize(decisionStream));
-
-#ifdef GPU_DEBUG
-  // memcpy to regular host memory
-  memcpy(delu_n, h_delu_n, delu_n_size);
-  memcpy(errors, h_errors, errors_size);
-#endif
 
   // max reduction using cub (can multiple instances of this run concurrently?)
   void *d_temp_storage = NULL;
@@ -314,11 +269,6 @@ float invokeDecisionKernel(float *u, float refine_filter, float dx, float dy, fl
   gpuSafe(cudaFree(d_errors));
   gpuSafe(cudaFree(d_temp_storage));
   gpuSafe(cudaFreeHost(h_error));
-#ifdef GPU_DEBUG
-  gpuSafe(cudaFree(d_delu_n));
-  gpuSafe(cudaFreeHost(h_delu_n));
-  gpuSafe(cudaFreeHost(h_errors));
-#endif
 
   // destroy stream
   gpuSafe(cudaStreamDestroy(decisionStream));
