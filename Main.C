@@ -34,7 +34,7 @@ using std::min;
 /* readonly */ float start_time, end_time;
 
 Main::Main(CkArgMsg* m) {
-  ckout << "* Running AMR code revision: " << amrRevision << " *" << endl;
+  ckout << "* Running AMR code revision: " << amrRevision << endl;
 
   mainProxy = thisProxy;
   iterations = 0;
