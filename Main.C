@@ -41,7 +41,7 @@ Main::Main(CkArgMsg* m) {
 
   // handle arguments
   if(m->argc < 5 || m->argc > 6) {
-    ckout << "Usage: " << m->argv[0] << "[max_depth] [block_size] [iterations] [lb_freq] [array_dim]?" << endl; 
+    ckout << "Usage: " << m->argv[0] << " [max_depth] [block_size] [iterations] [lb_freq] [array_dim]?" << endl; 
     CkExit();
   }
 

@@ -1,0 +1,48 @@
+#!/bin/bash
+
+#SBATCH --nodes=2
+#SBATCH --ntasks=26
+#SBATCH --partition=development
+#SBATCH --time=02:00:00
+#SBATCH --job-name=MQD
+
+# Parameters to be set manually
+iterations=10
+rundir=/home/jchoi157/lustre/amr
+
+execName="$1 $2 $3 $4 $5 $6"
+logName=`echo $execName | cut -d " " -f 1`
+outfile="$logName-$3-$6.out"
+logfile="$logName-$3-$6.log"
+resultfile="$logName-$3-$6.result"
+
+logdir=`pwd`
+rm -rf $logfile
+rm -rf $resultfile
+
+cd $rundir
+
+echo "Running experiments for $execName"
+echo "Running experiments for $execName" >> "$logdir/$resultfile"
+
+for pVal in 1 2 4 8 16 23
+do
+  echo "Benchmarking +p$pVal"
+  runtime_acc=0.0
+  errortime_acc=0.0
+  for (( iteration=1; iteration<=$iterations; iteration++ ))
+  do
+    echo "Iteration $iteration"
+
+    ./charmrun +p$pVal ++ppn $pVal ++local $execName > $logdir/$outfile
+
+    runtime=`grep -i "simulation time" $logdir/$outfile | cut -d ":" -f 2 | cut -d " " -f 2`
+    errortime=`grep -i "average time" $logdir/$outfile | cut -d ":" -f 2 | cut -d " " -f 2`
+    echo "+p $pVal $runtime $errortime" >> $logdir/$logfile
+    runtime_acc=$(echo "$runtime_acc + $runtime" | bc)
+    errortime_acc=$(echo "$errortime_acc + $errortime" | bc)
+  done
+  runtime_avg=$(echo "scale=6; $runtime_acc / $iterations" | bc)
+  errortime_avg=$(echo "scale=6; $errortime_acc / $iterations" | bc)
+  echo "[+p$pVal ++ppn $pVal] average execution time: $runtime_avg, average local error calculation time: $errortime_avg" >> "$logdir/$resultfile"
+done
