@@ -34,7 +34,7 @@ using std::min;
 /* readonly */ float start_time, end_time;
 
 Main::Main(CkArgMsg* m) {
-  ckout << "* Running AMR code revision: " << amrRevision << endl;
+  ckout << "* Running AMR code revision: " << amrRevision << " *" << endl;
 
   mainProxy = thisProxy;
   iterations = 0;
@@ -47,8 +47,10 @@ Main::Main(CkArgMsg* m) {
 
   // set max depth
   max_depth = atoi(m->argv[1]);
-  if (max_depth >= 11)
-    ckout << "Depth too high for bitvector index" << endl;
+  if (max_depth >= 11) {
+    ckout << "Error: depth too high for bitvector index" << endl;
+    CkExit();
+  }
 
   // set block size
   block_width = block_height = block_depth = atoi(m->argv[2]);
@@ -60,7 +62,7 @@ Main::Main(CkArgMsg* m) {
   lb_freq = atoi(m->argv[4]);
   refine_frequency = 3;
   if (lb_freq % refine_frequency != 0) {
-    ckout << "Load balancing frequency should be a mulitple of refine frequency (3)" << endl;
+    ckout << "Error: load balancing frequency should be a mulitple of refine frequency (3)" << endl;
     CkExit();
   }
 
@@ -71,7 +73,7 @@ Main::Main(CkArgMsg* m) {
     array_width = array_height = array_depth = 128;
 
   if(array_width < block_width || array_width % block_width < 0) {
-    ckout << "Incompatible arguments: array size = " << array_width << "block size = " << block_width << endl;
+    ckout << "Error: incompatible arguments: array size = " << array_width << "block size = " << block_width << endl;
     CkExit();
   }
 
@@ -82,8 +84,14 @@ Main::Main(CkArgMsg* m) {
   // set min depth
   float fdepth = log(num_chares) / log(NUM_CHILDREN);
   min_depth = (fabs(fdepth - ceil(fdepth)) < 0.000001) ? ceil(fdepth) : floor(fdepth);
-  if (min_depth == 0)
-    min_depth = 1; // should be at least 1 in any case
+  if (min_depth > max_depth) {
+    ckout << "Error: minimum depth > maximum depth: try increasing max_depth" << endl;
+    CkExit();
+  }
+  if (min_depth == 0) {
+    ckout << "Error: need more than 1 chare for the whole simulation" << endl;
+    CkExit();
+  }
 
   // initialize constants
   xmin = 0;
@@ -160,12 +168,12 @@ void Main::startMeshGeneration() {
 }
 
 void Main::terminate(){
-  ckout << "simulation time: " << CkWallTimer() - start_time << " s" << endl;
+  ckout << "Simulation time: " << CkWallTimer() - start_time << " s" << endl;
   ppc.reduceWorkUnits();
 }
 
 void Main::totalWorkUnits(int total) {
-  CkPrintf("total work units = %d\n", total);
+  CkPrintf("Total work units = %d\n", total);
   nresponses = 0;
   ppc.reduceQdTimes();
 }

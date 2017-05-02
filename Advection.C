@@ -287,22 +287,22 @@ void AdvectionGroup::processQdTimes(map<int, pair<float, float> > peQdtimes, map
 }
 
 void AdvectionGroup::printLogs(){
-    ckout << "qd times: ";
+    ckout << "QD times: ";
     for(map<int, pair<float, float> >::iterator it = qdtimes.begin(); it!=qdtimes.end(); it++)
       ckout << it->first << "," << it->second.second - it->second.first << " ";
     ckout << endl;
 
-    ckout << "remesh times: ";
+    ckout << "Remeshing times: ";
     for(map<int, pair<float, float> >::iterator it = remeshtimes.begin(); it!=remeshtimes.end(); it++)
       ckout << it->first << "," << it->second.second - it->second.first << " ";
     ckout << endl;
 
-    ckout << "per iteration work units: ";
+    ckout << "Per iteration work units: ";
     for(map<int, int>::iterator it = workUnits.begin(); it!=workUnits.end(); it++)
       ckout << it->first << "," << it->second << " ";
     ckout << endl;
     
-    ckout << "load balancing stats: ";
+    ckout << "Load balancing stats: ";
     for(map<int, int>::iterator it = minLoad.begin(); it!=minLoad.end(); it++){
       avgLoad[it->first]/=CkNumPes();
       ckout << it->first << "," << int(avgLoad[it->first]*100)/100. << "," << minLoad[it->first] << "," << maxLoad[it->first] << " ";
@@ -310,7 +310,7 @@ void AdvectionGroup::printLogs(){
     ckout << endl;
 
 #ifdef TIMER
-    ckout << "local error calculation average time: " << time_sum/time_cnt << endl;
+    ckout << "Local error calculation average time: " << time_sum/time_cnt << endl;
 #endif
 
     CkExit();
