@@ -1,11 +1,14 @@
-//#include "wr.h"
 #include <cub/cub.cuh>
 #include <math_constants.h>
 #include <math_functions.h>
 #include <stdio.h>
 #include <cfloat>
 
-#define USE_GPUMANAGER 0
+#ifdef USE_GPUMANAGER
+#include "wr.h"
+#endif
+
+#define USE_CUB 0
 #define USE_SHARED_MEM 1
 #define SUB_BLOCK_SIZE 8
 #define NUM_DIMS 3
@@ -16,6 +19,18 @@
 inline void gpuPrintErr(cudaError_t err, const char *file, int line) {
   if (err != cudaSuccess)
     fprintf(stderr,"CUDA Error: %s at %s:%d\n", cudaGetErrorString(err), file, line);
+}
+
+__device__ static float atomicMax(float* address, float val)
+{
+  int* address_as_i = (int*) address;
+  int old = *address_as_i, assumed;
+  do {
+    assumed = old;
+    old = ::atomicCAS(address_as_i, assumed,
+        __float_as_int(::fmaxf(val, __int_as_float(assumed))));
+  } while (assumed != old);
+  return __int_as_float(old);
 }
 
 __global__ void decisionKernel1(float *u, float *delu, float *delua, float dx, float dy, float dz, int block_size) {
@@ -93,7 +108,10 @@ __global__ void decisionKernel2(float *delu, float *delua, float *errors, float 
 #if USE_SHARED_MEM
   __shared__ float delu_s[NUM_DIMS][SUB_BLOCK_SIZE][SUB_BLOCK_SIZE][SUB_BLOCK_SIZE];
   __shared__ float delua_s[NUM_DIMS][SUB_BLOCK_SIZE][SUB_BLOCK_SIZE][SUB_BLOCK_SIZE];
-#endif
+#if !USE_CUB
+  __shared__ float maxError;
+#endif // USE_CUB
+#endif // USE_SHARED_MEM
 
 #if USE_SHARED_MEM
   int tx = threadIdx.x;
@@ -112,8 +130,12 @@ __global__ void decisionKernel2(float *delu, float *delua, float *errors, float 
       delua_s[d][tx][ty][tz] = delua[INDEX4(d,gx,gy,gz)];
     }
   }
+#if !USE_CUB
+  if (tx == 0 && ty == 0 && tz == 0)
+    maxError = 0;
+#endif // USE_CUB
   __syncthreads();
-#endif
+#endif // USE_SHARED_MEM
 
   // calculate error per thread
   float delu_pos, delu_neg;
@@ -180,44 +202,130 @@ __global__ void decisionKernel2(float *delu, float *delua, float *errors, float 
       error = num/denom;
     }
 
+#if USE_CUB
     // store error in global memory
     errors[ERR_INDEX(gx,gy,gz)] = error;
+#else
+#if USE_SHARED_MEM
+    atomicMax(&maxError, error);
+#else
+    atomicMax(errors, error);
+#endif // USE_SHARED_MEM
+#endif // USE_CUB
   }
+
+#if !USE_CUB
+#if USE_SHARED_MEM
+  __syncthreads();
+  if (tx == 0 && ty == 0 && tz == 0)
+    atomicMax(errors, maxError);
+#endif // USE_SHARED_MEM
+#endif // USE_CUB
+
 #undef INDEX4
 #undef ERR_INDEX
 }
 
-float invokeDecisionKernel(float *u, float refine_filter, float dx, float dy, float dz, int block_size) {
-  float error; // maximum error value to be returned
+#ifdef USE_GPUMANAGER
+void run_DECISION_KERNEL_1(workRequest *wr, cudaStream_t kernel_stream, void **devBuffers) {
+  void* constants = wr->getUserData();
+  float dx = *((float*)constants);
+  float dy = *((float*)((char*)constants + sizeof(float)));
+  float dz = *((float*)((char*)constants + sizeof(float)*2));
+  int block_size = *((int*)((char*)constants + sizeof(float)*3));
+  decisionKernel1<<<wr->dimGrid, wr->dimBlock, wr->smemSize, kernel_stream>>>
+    ((float*)hapi_devBuffer(wr, 0), (float*)hapi_devBuffer(wr, 1), (float*)hapi_devBuffer(wr, 2),
+     dx, dy, dz, block_size);
+  gpuCheck();
+}
 
-#if USE_GPUMANAGER
+void run_DECISION_KERNEL_2(workRequest *wr, cudaStream_t kernel_stream, void **devBuffers) {
+  void* constants = wr->getUserData();
+  float dx = *((float*)constants);
+  float dy = *((float*)((char*)constants + sizeof(float)));
+  float dz = *((float*)((char*)constants + sizeof(float)*2));
+  int block_size = *((int*)((char*)constants + sizeof(float)*3));
+  float refine_filter = *((float*)((char*)constants + sizeof(float)*3 + sizeof(int)));
+  decisionKernel2<<<wr->dimGrid, wr->dimBlock, wr->smemSize, kernel_stream>>>
+    ((float*)hapi_devBuffer(wr, 1), (float*)hapi_devBuffer(wr, 2), (float*)hapi_devBuffer(wr, 3),
+     refine_filter, dx, dy, dz, block_size);
+  gpuCheck();
+}
+
+void* getPinnedMemory(size_t size) {
+  return hapi_poolMalloc(size);
+}
+
+void freePinnedMemory(void* ptr) {
+  hapi_poolFree(ptr);
+}
+#endif
+
+float invokeDecisionKernel(float* u, float* pinned_error, float refine_filter, float dx, float dy, float dz, int block_size, void* cb) {
+  float error = 0.0; // maximum error value to be returned
+
+#ifdef USE_GPUMANAGER
   /********** With GPUManager **********/
-  /*
-  float h_error = (float *)hapi_poolMalloc(sizeof(float));
+
+  // sizes of data
   size_t u_size = sizeof(float)*(block_size+2)*(block_size+2)*(block_size+2);
   size_t delu_size = NUM_DIMS * u_size;
-  size_t errors_size = sizeof(float)*(block_size-2)*(block_size-2)*(block_size-2);
 
-  workRequest *amr = hapi_createWorkRequest();
-  amr->addBufferInfo(-1, h_error, sizeof(float), cudaMemcpyDeviceToHost, 1);
-  amr->addBufferInfo(-1, u, u_size, cudaMemcpyDeviceToHost, 1);
-  amr->addBufferInfo(-1, NULL, delu_size, -1, 1); // device-only memory
-  amr->addBufferInfo(-1, NULL, delu_size, -1, 1); // device-only memory
-  */
+  // store constants
+  void* constants = malloc(sizeof(float)*3 + sizeof(int) + sizeof(float));
+  *((float*)constants) = dx;
+  *((float*)((char*)constants + sizeof(float))) = dy;
+  *((float*)((char*)constants + sizeof(float)*2)) = dz;
+  *((int*)((char*)constants + sizeof(float)*3)) = block_size;
+  *((float*)((char*)constants + sizeof(float)*3 + sizeof(int))) = refine_filter;
+
+  // create work request for first kernel
+  workRequest* decision1 = hapi_createWorkRequest();
+  int sub_block_cnt = ceil((float)(block_size+2)/SUB_BLOCK_SIZE);
+  dim3 dimGrid(sub_block_cnt, sub_block_cnt, sub_block_cnt);
+  dim3 dimBlock(SUB_BLOCK_SIZE, SUB_BLOCK_SIZE, SUB_BLOCK_SIZE);
+  decision1->setExecParams(dimGrid, dimBlock);
+  decision1->addBufferInfo(u, u_size, true, false, false); // d_u TODO: how to free?
+  decision1->addBufferInfo(NULL, delu_size, false, false, false); // d_delu TODO: how to free?
+  decision1->addBufferInfo(NULL, delu_size, false, false, false); // d_delua TODO: how to free?
+  decision1->setUserData(constants, sizeof(float)*3 + sizeof(int));
+  decision1->setRunKernel(run_DECISION_KERNEL_1);
+
+  // enqueue first work request
+  int streamID = hapi_enqueue(decision1);
+
+  // create work request for second kernel
+  workRequest* decision2 = hapi_createWorkRequest();
+  sub_block_cnt = ceil((float)block_size/SUB_BLOCK_SIZE);
+  dimGrid = dim3(sub_block_cnt, sub_block_cnt, sub_block_cnt);
+  decision2->setExecParams(dimGrid, dimBlock);
+  decision2->setStream(streamID);
+  decision1->addBufferInfo(NULL, delu_size, false, false, false, 1); // d_delu TODO: how to free?
+  decision1->addBufferInfo(NULL, delu_size, false, false, false, 2); // d_delua TODO: how to free?
+  decision2->addBufferInfo(pinned_error, sizeof(float), true, true, true); // d_error
+  decision2->setCallback(cb);
+  decision2->setUserData(constants, sizeof(float)*3 + sizeof(int) + sizeof(float));
+  decision2->setRunKernel(run_DECISION_KERNEL_2);
+
+  // enqueue second work request
+  hapi_enqueue(decision2);
+
 #else
   /********** Without GPUManager **********/
 
   // pinned host memory allocations
   float *h_error;
   gpuSafe(cudaMallocHost(&h_error, sizeof(float)));
+#if USE_CUB
   size_t errors_size = sizeof(float)*(block_size-2)*(block_size-2)*(block_size-2);
+#endif
 
   // create stream
   cudaStream_t decisionStream;
   gpuSafe(cudaStreamCreate(&decisionStream));
 
   // allocate device memory
-  float *d_error, *d_errors;
+  float *d_error;
   float *d_u, *d_delu, *d_delua;
   size_t u_size = sizeof(float)*(block_size+2)*(block_size+2)*(block_size+2);
   size_t delu_size = NUM_DIMS * u_size;
@@ -226,7 +334,10 @@ float invokeDecisionKernel(float *u, float refine_filter, float dx, float dy, fl
   gpuSafe(cudaMalloc(&d_delua, delu_size));
   gpuSafe(cudaMalloc(&d_error, sizeof(float)));
   gpuSafe(cudaMemset(d_error, 0, sizeof(float)));
+#if USE_CUB
+  float *d_errors;
   gpuSafe(cudaMalloc(&d_errors, errors_size));
+#endif
 
   // copy u to device
   gpuSafe(cudaMemcpyAsync(d_u, u, u_size, cudaMemcpyHostToDevice, decisionStream));
@@ -241,12 +352,18 @@ float invokeDecisionKernel(float *u, float refine_filter, float dx, float dy, fl
   // execute second kernel to calculate errors
   sub_block_cnt = ceil((float)block_size/SUB_BLOCK_SIZE);
   dimGrid = dim3(sub_block_cnt, sub_block_cnt, sub_block_cnt);
+#if USE_CUB
   decisionKernel2<<<dimGrid, dimBlock, 0, decisionStream>>>(d_delu, d_delua, d_errors, refine_filter, dx, dy, dz, block_size);
+#else
+  decisionKernel2<<<dimGrid, dimBlock, 0, decisionStream>>>(d_delu, d_delua, d_error, refine_filter, dx, dy, dz, block_size);
+#endif
+  gpuSafe(cudaMemcpyAsync(h_error, d_error, sizeof(float), cudaMemcpyDeviceToHost, decisionStream));
   gpuCheck();
 
   // wait until completion
   gpuSafe(cudaStreamSynchronize(decisionStream));
 
+#if USE_CUB
   // max reduction using cub (can multiple instances of this run concurrently?)
   void *d_temp_storage = NULL;
   size_t temp_storage_bytes = 0;
@@ -257,6 +374,7 @@ float invokeDecisionKernel(float *u, float refine_filter, float dx, float dy, fl
 
   // wait until completion
   gpuSafe(cudaDeviceSynchronize());
+#endif
 
   // store max error
   error = *h_error;
@@ -266,8 +384,10 @@ float invokeDecisionKernel(float *u, float refine_filter, float dx, float dy, fl
   gpuSafe(cudaFree(d_delu));
   gpuSafe(cudaFree(d_delua));
   gpuSafe(cudaFree(d_error));
+#if USE_CUB
   gpuSafe(cudaFree(d_errors));
   gpuSafe(cudaFree(d_temp_storage));
+#endif
   gpuSafe(cudaFreeHost(h_error));
 
   // destroy stream

@@ -335,5 +335,7 @@ module Advection{
       }
       serial{iterate();}
     };
+
+    entry void gotErrorFromGPU();
   };
 };

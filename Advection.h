@@ -104,6 +104,9 @@ class Advection: public CBase_Advection/*, public AdvTerm */{
   float *x;
   float *y;
   float *z;
+  // GPUManager
+  float *error_gpumanager;
+  double time_start_gpumanager;
 
   float *left_surface;
   float *right_surface;
@@ -205,6 +208,9 @@ class Advection: public CBase_Advection/*, public AdvTerm */{
   int amr3d_i;
   int ichild;
   void printData();
+
+  // GPUManager
+  void gotErrorFromGPU();
 };
 
 class AdvectionGroup : public CBase_AdvectionGroup {

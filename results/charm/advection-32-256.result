@@ -1,0 +1,7 @@
+Running advection 4 32 1 3 256
+[1 PEs] average execution time: 61.158084, average local error calculation time: .017114
+[2 PEs] average execution time: 32.721865, average local error calculation time: .017688
+[4 PEs] average execution time: 17.418587, average local error calculation time: .018905
+[8 PEs] average execution time: 9.400890, average local error calculation time: .020422
+[16 PEs] average execution time: 8.442817, average local error calculation time: .028854
+[23 PEs] average execution time: 10.112313, average local error calculation time: .036575
