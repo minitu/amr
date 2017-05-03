@@ -32,7 +32,7 @@ extern int max_iterations, refine_frequency, lb_freq;
 #define inInitialMeshGenerationPhase (meshGenIterations <= max_depth)
 
 #ifdef USE_GPU
-extern float invokeDecisionKernel(float*, float*, float, float, float, float, int, void*);
+extern float invokeDecisionKernel(float*, float*, float, float, float, float, int, int, void*);
 #endif
 
 #ifdef USE_GPUMANAGER
@@ -1147,11 +1147,15 @@ Decision Advection::getGranularityDecision(){
   CkCallback *cb = new CkCallback(CkIndex_Advection::gotErrorFromGPU(), thisProxy);
 
   // execute GPU kernel
-  invokeDecisionKernel(u, error_gpumanager, refine_filter, dx, dy, dz, block_width, (void*)cb);
+  int index_x, index_y, index_z;
+  thisIndex.getCoordinates(index_x, index_y, index_z);
+  int chare_index = index_x + num_chare_cols * (index_y + num_chare_Zs * index_z);
+  invokeDecisionKernel(u, error_gpumanager, refine_filter, dx, dy, dz, block_width, chare_index, (void*)cb);
+
   return STAY;
 #else
   // execute GPU kernel
-  float error_gpu = invokeDecisionKernel(u, NULL, refine_filter, dx, dy, dz, block_width, NULL);
+  float error_gpu = invokeDecisionKernel(u, NULL, refine_filter, dx, dy, dz, block_width, 0, NULL);
   error = error_gpu;
 
 #ifdef TIMER

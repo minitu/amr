@@ -1,4 +1,4 @@
-CHARM_HOME = ../charm-master # ../charm-master or ../charm-cuda
+CHARM_HOME = ../charm-cuda
 DEFINE= -DTIMER # Possible flags: -DTIMER
 
 CHARMC = $(CHARM_HOME)/bin/charmc -I.

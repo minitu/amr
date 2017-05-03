@@ -1,0 +1,38 @@
+Charmrun> scalable start enabled. 
+Charmrun> started all node programs in 0.006 seconds.
+Charm++> Running in SMP mode: numNodes 1,  23 worker threads per process
+Charm++> The comm. thread both sends and receives messages
+Converse/Charm++ Commit ID: v6.7.0-694-ga75c66f
+Warning> Randomization of stack pointer is turned on in kernel, thread migration may not work! Run 'echo 0 > /proc/sys/kernel/randomize_va_space' as root to disable it, or try run with '+isomalloc_sync'.  
+Charm++> scheduler running in netpoll mode.
+CharmLB> Load balancer assumes all CPUs are same.
+Charm++> Running on 1 unique compute nodes (24-way SMP).
+Charm++> cpu topology info is gathered in 0.003 seconds.
+* Running AMR code revision: 
+* Constants
+	dx = 0.001953, apx = 0.000000, anx = 0.000000, dt = 0.003906, t = 0.003906
+* Running Advection on 23 processor(s)
+	Array dimension: 512 x 512 x 512
+	Block dimension: 64 x 64 x 64
+	Number of chares: 8 x 8 x 8
+	Minimum depth: 3
+	Maximum depth: 4
+	Maximum number of iterations: 1
+	Load balacning frequency: 3
+doing remeshing now.. iterations = 0, meshGenIterations = 1
+starting phase 2, iterations = 1, meshGenIterations = 1
+doing remeshing now.. iterations = 0, meshGenIterations = 2
+starting phase 2, iterations = 2, meshGenIterations = 2
+doing remeshing now.. iterations = 0, meshGenIterations = 3
+starting phase 2, iterations = 3, meshGenIterations = 3
+doing remeshing now.. iterations = 0, meshGenIterations = 4
+starting phase 2, iterations = 4, meshGenIterations = 4
+starting iteration 1 at root, time = 9.762118
+Simulation time: 18.077039 s
+Total work units = 904
+QD times: 1,0.065052 2,0.053974 3,0.005798 4,0.012970 
+Remeshing times: 0,2.407700 
+Per iteration work units: 1,904 
+Load balancing stats: 
+Local error calculation average time: 0.044847
+[Partition 0][Node 0] End of program

@@ -1,0 +1,7 @@
+Running advection-cuda-run 4 64 1 3 512
+[1 PEs] average execution time: 68.704764, average local error calculation time: .003051
+[2 PEs] average execution time: 37.884647, average local error calculation time: .004278
+[4 PEs] average execution time: 23.167940, average local error calculation time: .007036
+[8 PEs] average execution time: 16.130911, average local error calculation time: .016210
+[16 PEs] average execution time: 14.825698, average local error calculation time: .032175
+[23 PEs] average execution time: 16.717433, average local error calculation time: .039976

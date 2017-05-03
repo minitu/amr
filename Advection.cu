@@ -247,7 +247,7 @@ void run_DECISION_KERNEL_2(workRequest *wr, cudaStream_t kernel_stream, void **d
   int block_size = *((int*)((char*)constants + sizeof(float)*3));
   float refine_filter = *((float*)((char*)constants + sizeof(float)*3 + sizeof(int)));
   decisionKernel2<<<wr->dimGrid, wr->dimBlock, wr->smemSize, kernel_stream>>>
-    ((float*)hapi_devBuffer(wr, 1), (float*)hapi_devBuffer(wr, 2), (float*)hapi_devBuffer(wr, 3),
+    ((float*)hapi_devBuffer(wr, 0), (float*)hapi_devBuffer(wr, 1), (float*)hapi_devBuffer(wr, 2),
      refine_filter, dx, dy, dz, block_size);
   gpuCheck();
 }
@@ -261,7 +261,7 @@ void freePinnedMemory(void* ptr) {
 }
 #endif
 
-float invokeDecisionKernel(float* u, float* pinned_error, float refine_filter, float dx, float dy, float dz, int block_size, void* cb) {
+float invokeDecisionKernel(float* u, float* pinned_error, float refine_filter, float dx, float dy, float dz, int block_size, int chare_index, void* cb) {
   float error = 0.0; // maximum error value to be returned
 
 #ifdef USE_GPUMANAGER
@@ -285,9 +285,9 @@ float invokeDecisionKernel(float* u, float* pinned_error, float refine_filter, f
   dim3 dimGrid(sub_block_cnt, sub_block_cnt, sub_block_cnt);
   dim3 dimBlock(SUB_BLOCK_SIZE, SUB_BLOCK_SIZE, SUB_BLOCK_SIZE);
   decision1->setExecParams(dimGrid, dimBlock);
-  decision1->addBufferInfo(u, u_size, true, false, false); // d_u TODO: how to free?
-  decision1->addBufferInfo(NULL, delu_size, false, false, false); // d_delu TODO: how to free?
-  decision1->addBufferInfo(NULL, delu_size, false, false, false); // d_delua TODO: how to free?
+  decision1->addBufferInfo(u, u_size, true, false, false, chare_index*4); // d_u TODO: how to free?
+  decision1->addBufferInfo(NULL, delu_size, false, false, false, chare_index*4 + 1); // d_delu TODO: how to free?
+  decision1->addBufferInfo(NULL, delu_size, false, false, false, chare_index*4 + 2); // d_delua TODO: how to free?
   decision1->setUserData(constants, sizeof(float)*3 + sizeof(int));
   decision1->setRunKernel(run_DECISION_KERNEL_1);
 
@@ -300,9 +300,9 @@ float invokeDecisionKernel(float* u, float* pinned_error, float refine_filter, f
   dimGrid = dim3(sub_block_cnt, sub_block_cnt, sub_block_cnt);
   decision2->setExecParams(dimGrid, dimBlock);
   decision2->setStream(streamID);
-  decision1->addBufferInfo(NULL, delu_size, false, false, false, 1); // d_delu TODO: how to free?
-  decision1->addBufferInfo(NULL, delu_size, false, false, false, 2); // d_delua TODO: how to free?
-  decision2->addBufferInfo(pinned_error, sizeof(float), true, true, true); // d_error
+  decision1->addBufferInfo(NULL, delu_size, false, false, false, chare_index*4 + 1); // d_delu TODO: how to free?
+  decision1->addBufferInfo(NULL, delu_size, false, false, false, chare_index*4 + 2); // d_delua TODO: how to free?
+  decision2->addBufferInfo(pinned_error, sizeof(float), true, true, true, chare_index*4 + 3); // d_error
   decision2->setCallback(cb);
   decision2->setUserData(constants, sizeof(float)*3 + sizeof(int) + sizeof(float));
   decision2->setRunKernel(run_DECISION_KERNEL_2);
