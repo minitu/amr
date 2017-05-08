@@ -105,6 +105,7 @@ class Advection: public CBase_Advection/*, public AdvTerm */{
   float *y;
   float *z;
   // GPUManager
+  int streamID;
   float *error_gpumanager;
   double time_start_gpumanager;
 

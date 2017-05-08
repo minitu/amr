@@ -32,13 +32,15 @@ extern int max_iterations, refine_frequency, lb_freq;
 #define inInitialMeshGenerationPhase (meshGenIterations <= max_depth)
 
 #ifdef USE_GPU
-extern float invokeDecisionKernel(float*, float*, float, float, float, float, int, int, void*);
-#endif
-
 #ifdef USE_GPUMANAGER
+extern int invokeDecisionKernel(float*, float*, float, float, float, float, int, int, int, void*);
 extern void* getPinnedMemory(size_t size);
 extern void freePinnedMemory(void* ptr);
+#else
+extern float invokeDecisionKernel(float*, float, float, float, float, int);
 #endif
+#endif
+
 
 float refine_filter = 0.01;
 float refine_cutoff=0.2, derefine_cutoff=0.05;
@@ -437,6 +439,11 @@ Advection::Advection(float xmin, float xmax, float ymin, float ymax,
   iterations=0;
   meshGenIterations=0;
   initializeRestofTheData();
+
+#ifdef USE_GPUMANAGER
+  streamID = -1;
+  error_gpumanager = NULL;
+#endif
 }
 
 void Advection::initializeRestofTheData(){
@@ -1032,7 +1039,7 @@ void Advection::compute(){
 
 void Advection::gotErrorFromGPU() {
   float error_gpu = *error_gpumanager;
-  CkPrintf("error_gpu: %f\n", error_gpu);
+  //CkPrintf("error_gpu: %f\n", error_gpu);
 
 #ifdef TIMER
   double time_dur = CkWallTimer() - time_start_gpumanager;
@@ -1150,12 +1157,12 @@ Decision Advection::getGranularityDecision(){
   int index_x, index_y, index_z;
   thisIndex.getCoordinates(index_x, index_y, index_z);
   int chare_index = index_x + num_chare_cols * (index_y + num_chare_Zs * index_z);
-  invokeDecisionKernel(u, error_gpumanager, refine_filter, dx, dy, dz, block_width, chare_index, (void*)cb);
+  streamID = invokeDecisionKernel(u, error_gpumanager, refine_filter, dx, dy, dz, block_width, chare_index, streamID, (void*)cb);
 
   return STAY;
 #else
   // execute GPU kernel
-  float error_gpu = invokeDecisionKernel(u, NULL, refine_filter, dx, dy, dz, block_width, 0, NULL);
+  float error_gpu = invokeDecisionKernel(u, refine_filter, dx, dy, dz, block_width);
   error = error_gpu;
 
 #ifdef TIMER
@@ -1628,7 +1635,8 @@ Advection::Advection(float dx, float dy, float dz,
   this->dy = dy;
   this->dz = dz;
 #ifdef USE_GPUMANAGER
-  this->error_gpumanager = NULL;
+  streamID = -1;
+  error_gpumanager = NULL;
 #endif
 
   this->myt = myt;
