@@ -378,8 +378,12 @@ void Advection::mem_allocate(float* &p, int size){
   p = new float[size];
 }
 
+extern void mem_allocate_host(void* ptr, size_t size);
+extern void mem_deallocate_host(void* ptr);
+
 void Advection::mem_allocate_all(){
-  mem_allocate(u, (block_width+2)*(block_height+2)*(block_depth+2));
+  //mem_allocate(u, (block_width+2)*(block_height+2)*(block_depth+2));
+  mem_allocate_host(u, (block_width+2)*(block_height+2)*(block_depth+2));
   mem_allocate(u2, (block_width+2)*(block_height+2)*(block_depth+2));
   mem_allocate(u3, (block_width+2)*(block_height+2)*(block_depth+2));
 
@@ -398,7 +402,8 @@ void Advection::mem_allocate_all(){
 }
 
 void Advection::mem_deallocate_all(){
-  delete [] u;
+  //delete [] u;
+  mem_deallocate_host(u);
   delete [] u2;
   delete [] u3;
 
@@ -552,7 +557,8 @@ void Advection::pup(PUP::er &p){
 
 Advection::~Advection(){
   if (isLeaf){
-    delete [] u;
+    //delete [] u;
+    mem_deallocate_host(u);
     delete [] u2;
     delete [] u3;
 
