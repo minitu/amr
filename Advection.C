@@ -1157,6 +1157,7 @@ Decision Advection::getGranularityDecision(){
     error_gpumanager = (float*)getPinnedMemory(sizeof(float));
 
   // create callback
+  CkArrayIndexOctIndex myIndex = CkArrayIndexOctIndex(thisIndex);
   CkCallback *cb = new CkCallback(CkIndex_Advection::gotErrorFromGPU(), thisProxy);
 
   // execute GPU kernel
