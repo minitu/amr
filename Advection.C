@@ -38,6 +38,7 @@ extern void* getPinnedMemory(size_t size);
 extern void freePinnedMemory(void* ptr);
 #else
 extern float invokeDecisionKernel(float*, float, float, float, float, int);
+extern void invokeComputeKernel(float*, float, float, float, float, float, float, float, float, float, float, int);
 #endif
 #endif
 
@@ -386,11 +387,13 @@ extern void mem_deallocate_host(void* ptr);
 void Advection::mem_allocate_all(){
 #ifdef USE_GPU
   mem_allocate_host((void**)&u, (block_width+2)*(block_height+2)*(block_depth+2)*sizeof(float));
+  mem_allocate_host((void**)&u2, (block_width+2)*(block_height+2)*(block_depth+2)*sizeof(float));
+  mem_allocate_host((void**)&u3, (block_width+2)*(block_height+2)*(block_depth+2)*sizeof(float));
 #else
   mem_allocate(u, (block_width+2)*(block_height+2)*(block_depth+2));
-#endif
   mem_allocate(u2, (block_width+2)*(block_height+2)*(block_depth+2));
   mem_allocate(u3, (block_width+2)*(block_height+2)*(block_depth+2));
+#endif
 
   mem_allocate(x, block_width+2);
   mem_allocate(y, block_height+2);
@@ -409,11 +412,13 @@ void Advection::mem_allocate_all(){
 void Advection::mem_deallocate_all(){
 #ifdef USE_GPU
   mem_deallocate_host(u);
+  mem_deallocate_host(u2);
+  mem_deallocate_host(u3);
 #else
   delete [] u;
-#endif
   delete [] u2;
   delete [] u3;
+#endif
 
   delete [] x;
   delete [] y;
@@ -989,6 +994,13 @@ void Advection::compute(){
     }*/
 #endif
   //}
+
+#ifdef TIMER
+  double start_time = CkWallTimer();
+#endif
+
+#ifndef USE_GPU
+  /********** CPU CODE **********/
   memcpy(u2, u, sizeof(float)*(block_width+2)*(block_height+2)*(block_depth+2));
   memcpy(u3, u, sizeof(float)*(block_width+2)*(block_height+2)*(block_depth+2));
 
@@ -1003,7 +1015,7 @@ void Advection::compute(){
       up[2] = (u[index(i,j,k+1)] - u[index(i,j,k)])/dz;
       un[2] = (u[index(i,j,k)] - u[index(i,j,k-1)])/dz;
 
-      u2[index(i,j,k)] = u[index(i,j,k)] - dt* (apx*un[0] + anx*up[0]) - dt*(apy*un[1] + any*up[1]) - dt*(apz*un[2] + anz*up[2]);
+      u2[index(i,j,k)] = u[index(i,j,k)] - dt*(apx*un[0] + anx*up[0]) - dt*(apy*un[1] + any*up[1]) - dt*(apz*un[2] + anz*up[2]);
   END_FOR
 
   // =========================================
@@ -1022,6 +1034,15 @@ void Advection::compute(){
   FOR_EACH_ZONE
       u[index(i,j,k)] = 0.5*(u2[index(i,j,k)] + u3[index(i,j,k)]);
   END_FOR
+#else
+  /********** GPU CODE **********/
+  invokeComputeKernel(u, dx, dy, dz, dt, apx, apy, apz, anx, any, anz, block_width);
+#endif
+
+#ifdef TIMER
+  double end_time = CkWallTimer();
+#endif
+
 #if 0
     logfile << "after compute" << std::endl;
     for(int k=1; k<=block_depth; k++){
@@ -1067,7 +1088,7 @@ Decision Advection::getGranularityDecision(){
 
   AdvectionGroup *ppcGrp = ppc.ckLocalBranch();
 
-#if !defined(USE_GPU)
+#ifndef USE_GPU
   /********** CPU CODE *********/
 
 #ifdef TIMER

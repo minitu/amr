@@ -41,27 +41,131 @@ __device__ static float atomicMax(float* address, float val)
   return __int_as_float(old);
 }
 
-__global__ void decisionKernel1(float *u, float *delu, float *delua, float dx, float dy, float dz, int block_size) {
-#define INDEX(i,j,k) (((k) * (block_size+2) + (j)) * (block_size+2) + (i))
-#define INDEX4(d,i,j,k) ((((d) * (block_size+2) + (k)) * (block_size+2) + (j)) * (block_size+2) + (i))
-  float delx = 0.5/dx;
-  float dely = 0.5/dy;
-  float delz = 0.5/dz;
+__global__ void computeKernel(float* u2, float* u, float dx, float dy, float dz, float dt, float apx, float apy, float apz, float anx, float any, float anz, int block_size) {
+#define MY_INDEX(i,j,k) (((k) * (block_size+2) + (j)) * (block_size+2) + (i))
+  float up[3];
+  float un[3];
+
+  int gx = blockDim.x * blockIdx.x + threadIdx.x;
+  int gy = blockDim.y * blockIdx.y + threadIdx.y;
+  int gz = blockDim.z * blockIdx.z + threadIdx.z;
+
 #if USE_SHARED_MEM
   __shared__ float u_s[SUB_BLOCK_SIZE][SUB_BLOCK_SIZE][SUB_BLOCK_SIZE];
 
   int tx = threadIdx.x;
   int ty = threadIdx.y;
   int tz = threadIdx.z;
+
+  // read u into shared memory
+  if ((gx < (block_size + 2)) && (gy < (block_size + 2)) && (gz < (block_size + 2))) {
+    u_s[tx][ty][tz] = u[MY_INDEX(gx,gy,gz)];
+  }
+  __syncthreads();
 #endif
+
+  if (((gx >= 1 && gx <= block_size) && (gy >= 1 && gy <= block_size)) && (gz >= 1 && gz <= block_size)) {
+#if USE_SHARED_MEM
+    up[0] = (((tx < SUB_BLOCK_SIZE-1) ? (u_s[tx+1][ty][tz]) : (u[MY_INDEX(gx+1,gy,gz)])) - u[MY_INDEX(gx,gy,gz)])/dx;
+    un[0] = (u[MY_INDEX(gx,gy,gz)] - ((tx > 0) ? (u_s[tx-1][ty][tz]) : (u[MY_INDEX(gx-1,gy,gz)])))/dx;
+    up[1] = (((ty < SUB_BLOCK_SIZE-1) ? (u_s[tx][ty+1][tz]) : (u[MY_INDEX(gx,gy+1,gz)])) - u[MY_INDEX(gx,gy,gz)])/dy;
+    un[1] = (u[MY_INDEX(gx,gy,gz)] - ((ty > 0) ? (u_s[tx][ty-1][tz]) : (u[MY_INDEX(gx,gy-1,gz)])))/dy;
+    up[2] = (((tz < SUB_BLOCK_SIZE-1) ? (u_s[tx][ty][tz+1]) : (u[MY_INDEX(gx,gy,gz+1)])) - u[MY_INDEX(gx,gy,gz)])/dz;
+    un[2] = (u[MY_INDEX(gx,gy,gz)] - ((tz > 0) ? (u_s[tx][ty][tz-1]) : (u[MY_INDEX(gx,gy,gz-1)])))/dz;
+#else
+    up[0] = (u[MY_INDEX(gx+1,gy,gz)] - u[MY_INDEX(gx,gy,gz)])/dx;
+    un[0] = (u[MY_INDEX(gx,gy,gz)] - u[MY_INDEX(gx-1,gy,gz)])/dx;
+    up[1] = (u[MY_INDEX(gx,gy+1,gz)] - u[MY_INDEX(gx,gy,gz)])/dy;
+    un[1] = (u[MY_INDEX(gx,gy,gz)] - u[MY_INDEX(gx,gy-1,gz)])/dy;
+    up[2] = (u[MY_INDEX(gx,gy,gz+1)] - u[MY_INDEX(gx,gy,gz)])/dz;
+    un[2] = (u[MY_INDEX(gx,gy,gz)] - u[MY_INDEX(gx,gy,gz-1)])/dz;
+#endif
+
+    u2[MY_INDEX(gx,gy,gz)] = u[MY_INDEX(gx,gy,gz)] - dt*(apx*un[0] + anx*up[0]) - dt*(apy*un[1] + any*up[1]) - dt*(apz*un[2] + anz*up[2]);
+  }
+#undef MY_INDEX
+}
+
+__global__ void computeAddKernel(float* u, float* u2, float* u3, int block_size) {
+#define MY_INDEX(i,j,k) (((k) * (block_size+2) + (j)) * (block_size+2) + (i))
+  int gx = blockDim.x * blockIdx.x + threadIdx.x + 1;
+  int gy = blockDim.y * blockIdx.y + threadIdx.y + 1;
+  int gz = blockDim.z * blockIdx.z + threadIdx.z + 1;
+
+  u[MY_INDEX(gx,gy,gz)] = 0.5*(u2[MY_INDEX(gx,gy,gz)] + u3[MY_INDEX(gx,gy,gz)]);
+#undef MY_INDEX
+}
+
+void invokeComputeKernel(float* u, float dx, float dy, float dz, float dt, float apx, float apy, float apz, float anx, float any, float anz, int block_size) {
+  // create stream
+  cudaStream_t computeStream;
+  gpuSafe(cudaStreamCreate(&computeStream));
+
+  // allocate device memory
+  float* d_u;
+  float* d_u2;
+  float* d_u3;
+  size_t u_size = sizeof(float)*(block_size+2)*(block_size+2)*(block_size+2);
+  gpuSafe(cudaMalloc(&d_u, u_size));
+  gpuSafe(cudaMalloc(&d_u2, u_size));
+  gpuSafe(cudaMalloc(&d_u3, u_size));
+
+  // copy u to device
+  gpuSafe(cudaMemcpyAsync(d_u, u, u_size, cudaMemcpyHostToDevice, computeStream));
+  gpuSafe(cudaMemcpyAsync(d_u2, u, u_size, cudaMemcpyHostToDevice, computeStream));
+  gpuSafe(cudaMemcpyAsync(d_u3, u, u_size, cudaMemcpyHostToDevice, computeStream));
+
+  // execute first kernel to calculate u2
+  int sub_block_cnt = ceil((float)(block_size+2)/SUB_BLOCK_SIZE);
+  dim3 dimGrid(sub_block_cnt, sub_block_cnt, sub_block_cnt);
+  dim3 dimBlock(SUB_BLOCK_SIZE, SUB_BLOCK_SIZE, SUB_BLOCK_SIZE);
+  computeKernel<<<dimGrid, dimBlock, 0, computeStream>>>(d_u2, d_u, dx, dy, dz, dt, apx, apy, apz, anx, any, anz, block_size);
+  gpuCheck();
+
+  // execute second kernel to calculate u3
+  computeKernel<<<dimGrid, dimBlock, 0, computeStream>>>(d_u3, d_u2, dx, dy, dz, dt, apx, apy, apz, anx, any, anz, block_size);
+  gpuCheck();
+
+  // execute last kernel to calculate new u
+  sub_block_cnt = ceil((float)(block_size)/SUB_BLOCK_SIZE);
+  dimGrid = dim3(sub_block_cnt, sub_block_cnt, sub_block_cnt);
+  dimBlock = dim3(SUB_BLOCK_SIZE, SUB_BLOCK_SIZE, SUB_BLOCK_SIZE);
+  computeAddKernel<<<dimGrid, dimBlock, 0, computeStream>>>(d_u, d_u2, d_u3, block_size);
+  gpuCheck();
+
+  // copy new u to host
+  gpuSafe(cudaMemcpyAsync(u, d_u, u_size, cudaMemcpyDeviceToHost, computeStream));
+
+  // wait until completion
+  gpuSafe(cudaStreamSynchronize(computeStream));
+
+  // free memory allocations
+  gpuSafe(cudaFree(d_u));
+  gpuSafe(cudaFree(d_u2));
+  gpuSafe(cudaFree(d_u3));
+}
+
+__global__ void decisionKernel1(float *u, float *delu, float *delua, float dx, float dy, float dz, int block_size) {
+#define MY_INDEX(i,j,k) (((k) * (block_size+2) + (j)) * (block_size+2) + (i))
+#define MY_INDEX4(d,i,j,k) ((((d) * (block_size+2) + (k)) * (block_size+2) + (j)) * (block_size+2) + (i))
+  float delx = 0.5/dx;
+  float dely = 0.5/dy;
+  float delz = 0.5/dz;
+
   int gx = blockDim.x * blockIdx.x + threadIdx.x;
   int gy = blockDim.y * blockIdx.y + threadIdx.y;
   int gz = blockDim.z * blockIdx.z + threadIdx.z;
 
 #if USE_SHARED_MEM
+  __shared__ float u_s[SUB_BLOCK_SIZE][SUB_BLOCK_SIZE][SUB_BLOCK_SIZE];
+
+  int tx = threadIdx.x;
+  int ty = threadIdx.y;
+  int tz = threadIdx.z;
+
   // read u into shared memory
   if ((gx < (block_size + 2)) && (gy < (block_size + 2)) && (gz < (block_size + 2))) {
-    u_s[tx][ty][tz] = u[INDEX(gx,gy,gz)];
+    u_s[tx][ty][tz] = u[MY_INDEX(gx,gy,gz)];
   }
   __syncthreads();
 #endif
@@ -71,71 +175,69 @@ __global__ void decisionKernel1(float *u, float *delu, float *delua, float dx, f
   if (((gx >= 1 && gx <= block_size) && (gy >= 1 && gy <= block_size)) && (gz >= 1 && gz <= block_size)) {
     // d/dx
 #if USE_SHARED_MEM
-    u_pos = (tx < SUB_BLOCK_SIZE-1) ? (u_s[tx+1][ty][tz]) : (u[INDEX(gx+1,gy,gz)]);
-    u_neg = (tx > 0) ? (u_s[tx-1][ty][tz]) : (u[INDEX(gx-1,gy,gz)]);
+    u_pos = (tx < SUB_BLOCK_SIZE-1) ? (u_s[tx+1][ty][tz]) : (u[MY_INDEX(gx+1,gy,gz)]);
+    u_neg = (tx > 0) ? (u_s[tx-1][ty][tz]) : (u[MY_INDEX(gx-1,gy,gz)]);
 #else
-    u_pos = u[INDEX(gx+1,gy,gz)];
-    u_neg = u[INDEX(gx-1,gy,gz)];
+    u_pos = u[MY_INDEX(gx+1,gy,gz)];
+    u_neg = u[MY_INDEX(gx-1,gy,gz)];
 #endif
-    delu[INDEX4(0,gx,gy,gz)] = (u_pos - u_neg)*delx;
-    delua[INDEX4(0,gx,gy,gz)] = (fabsf(u_pos) + fabsf(u_neg))*delx;
+    delu[MY_INDEX4(0,gx,gy,gz)] = (u_pos - u_neg)*delx;
+    delua[MY_INDEX4(0,gx,gy,gz)] = (fabsf(u_pos) + fabsf(u_neg))*delx;
 
     // d/dy
 #if USE_SHARED_MEM
-    u_pos = (ty < SUB_BLOCK_SIZE-1) ? (u_s[tx][ty+1][tz]) : (u[INDEX(gx,gy+1,gz)]);
-    u_neg = (ty > 0) ? (u_s[tx][ty-1][tz]) : (u[INDEX(gx,gy-1,gz)]);
+    u_pos = (ty < SUB_BLOCK_SIZE-1) ? (u_s[tx][ty+1][tz]) : (u[MY_INDEX(gx,gy+1,gz)]);
+    u_neg = (ty > 0) ? (u_s[tx][ty-1][tz]) : (u[MY_INDEX(gx,gy-1,gz)]);
 #else
-    u_pos = u[INDEX(gx,gy+1,gz)];
-    u_neg = u[INDEX(gx,gy-1,gz)];
+    u_pos = u[MY_INDEX(gx,gy+1,gz)];
+    u_neg = u[MY_INDEX(gx,gy-1,gz)];
 #endif
-    delu[INDEX4(1,gx,gy,gz)] = (u_pos - u_neg)*dely;
-    delua[INDEX4(1,gx,gy,gz)] = (fabsf(u_pos) + fabsf(u_neg))*dely;
+    delu[MY_INDEX4(1,gx,gy,gz)] = (u_pos - u_neg)*dely;
+    delua[MY_INDEX4(1,gx,gy,gz)] = (fabsf(u_pos) + fabsf(u_neg))*dely;
 
     // d/dz
 #if USE_SHARED_MEM
-    u_pos = (tz < SUB_BLOCK_SIZE-1) ? (u_s[tx][ty][tz+1]) : (u[INDEX(gx,gy,gz+1)]);
-    u_neg = (tz > 0) ? (u_s[tx][ty][tz-1]) : (u[INDEX(gx,gy,gz-1)]);
+    u_pos = (tz < SUB_BLOCK_SIZE-1) ? (u_s[tx][ty][tz+1]) : (u[MY_INDEX(gx,gy,gz+1)]);
+    u_neg = (tz > 0) ? (u_s[tx][ty][tz-1]) : (u[MY_INDEX(gx,gy,gz-1)]);
 #else
-    u_pos = u[INDEX(gx,gy,gz+1)];
-    u_neg = u[INDEX(gx,gy,gz-1)];
+    u_pos = u[MY_INDEX(gx,gy,gz+1)];
+    u_neg = u[MY_INDEX(gx,gy,gz-1)];
 #endif
-    delu[INDEX4(2,gx,gy,gz)] = (u_pos - u_neg)*delz;
-    delua[INDEX4(2,gx,gy,gz)] = (fabsf(u_pos) + fabsf(u_neg))*delz;
+    delu[MY_INDEX4(2,gx,gy,gz)] = (u_pos - u_neg)*delz;
+    delua[MY_INDEX4(2,gx,gy,gz)] = (fabsf(u_pos) + fabsf(u_neg))*delz;
   }
-#undef INDEX
-#undef INDEX4
+#undef MY_INDEX
+#undef MY_INDEX4
 }
 
 __global__ void decisionKernel2(float *delu, float *delua, float *errors, float refine_filter, float dx, float dy, float dz, int block_size) {
-#define INDEX4(d,i,j,k) ((((d) * (block_size+2) + (k)) * (block_size+2) + (j)) * (block_size+2) + (i))
+#define MY_INDEX4(d,i,j,k) ((((d) * (block_size+2) + (k)) * (block_size+2) + (j)) * (block_size+2) + (i))
 #define ERR_INDEX(i,j,k) ((((k)-2) * (block_size-2) + ((j)-2)) * (block_size-2) + ((i)-2))
   float delx = 0.5/dx;
   float dely = 0.5/dy;
   float delz = 0.5/dz;
   float delu_n[3][NUM_DIMS * NUM_DIMS];
+
+  int gx = blockDim.x * blockIdx.x + threadIdx.x + 1;
+  int gy = blockDim.y * blockIdx.y + threadIdx.y + 1;
+  int gz = blockDim.z * blockIdx.z + threadIdx.z + 1;
+
 #if USE_SHARED_MEM
   __shared__ float delu_s[NUM_DIMS][SUB_BLOCK_SIZE][SUB_BLOCK_SIZE][SUB_BLOCK_SIZE];
   __shared__ float delua_s[NUM_DIMS][SUB_BLOCK_SIZE][SUB_BLOCK_SIZE][SUB_BLOCK_SIZE];
 #if !USE_CUB
   __shared__ float maxError;
 #endif // USE_CUB
-#endif // USE_SHARED_MEM
 
-#if USE_SHARED_MEM
   int tx = threadIdx.x;
   int ty = threadIdx.y;
   int tz = threadIdx.z;
-#endif
-  int gx = blockDim.x * blockIdx.x + threadIdx.x + 1;
-  int gy = blockDim.y * blockIdx.y + threadIdx.y + 1;
-  int gz = blockDim.z * blockIdx.z + threadIdx.z + 1;
 
-#if USE_SHARED_MEM
   // read delu & delua into shared memory
   if (gx <= block_size && gy <= block_size && gz <= block_size) {
     for (int d = 0; d < NUM_DIMS; d++) {
-      delu_s[d][tx][ty][tz] = delu[INDEX4(d,gx,gy,gz)];
-      delua_s[d][tx][ty][tz] = delua[INDEX4(d,gx,gy,gz)];
+      delu_s[d][tx][ty][tz] = delu[MY_INDEX4(d,gx,gy,gz)];
+      delua_s[d][tx][ty][tz] = delua[MY_INDEX4(d,gx,gy,gz)];
     }
   }
 #if !USE_CUB
@@ -153,45 +255,45 @@ __global__ void decisionKernel2(float *delu, float *delua, float *errors, float 
   if ((gx > 1 && gx < block_size) && (gy > 1 && gy < block_size) && (gz > 1 && gz < block_size)) {
     for (int d = 0; d < NUM_DIMS; d++) {
 #if USE_SHARED_MEM
-      delu_pos = (tx < SUB_BLOCK_SIZE-1) ? (delu_s[d][tx+1][ty][tz]) : (delu[INDEX4(d,gx+1,gy,gz)]);
-      delu_neg = (tx > 0) ? (delu_s[d][tx-1][ty][tz]) : (delu[INDEX4(d,gx-1,gy,gz)]);
-      delua_pos = (tx < SUB_BLOCK_SIZE-1) ? (delua_s[d][tx+1][ty][tz]) : (delua[INDEX4(d,gx+1,gy,gz)]);
-      delua_neg = (tx > 0) ? (delua_s[d][tx-1][ty][tz]) : (delua[INDEX4(d,gx-1,gy,gz)]);
+      delu_pos = (tx < SUB_BLOCK_SIZE-1) ? (delu_s[d][tx+1][ty][tz]) : (delu[MY_INDEX4(d,gx+1,gy,gz)]);
+      delu_neg = (tx > 0) ? (delu_s[d][tx-1][ty][tz]) : (delu[MY_INDEX4(d,gx-1,gy,gz)]);
+      delua_pos = (tx < SUB_BLOCK_SIZE-1) ? (delua_s[d][tx+1][ty][tz]) : (delua[MY_INDEX4(d,gx+1,gy,gz)]);
+      delua_neg = (tx > 0) ? (delua_s[d][tx-1][ty][tz]) : (delua[MY_INDEX4(d,gx-1,gy,gz)]);
 #else
-      delu_pos = delu[INDEX4(d,gx+1,gy,gz)];
-      delu_neg = delu[INDEX4(d,gx-1,gy,gz)];
-      delua_pos = delua[INDEX4(d,gx+1,gy,gz)];
-      delua_neg = delua[INDEX4(d,gx-1,gy,gz)];
+      delu_pos = delu[MY_INDEX4(d,gx+1,gy,gz)];
+      delu_neg = delu[MY_INDEX4(d,gx-1,gy,gz)];
+      delua_pos = delua[MY_INDEX4(d,gx+1,gy,gz)];
+      delua_neg = delua[MY_INDEX4(d,gx-1,gy,gz)];
 #endif
       delu_n[0][3*d+0] = (delu_pos - delu_neg)*delx;
       delu_n[1][3*d+0] = (fabsf(delu_pos) + fabsf(delu_neg))*delx;
       delu_n[2][3*d+0] = (delua_pos + delua_neg)*delx;
 
 #if USE_SHARED_MEM
-      delu_pos = (ty < SUB_BLOCK_SIZE-1) ? (delu_s[d][tx][ty+1][tz]) : (delu[INDEX4(d,gx,gy+1,gz)]);
-      delu_neg = (ty > 0) ? (delu_s[d][tx][ty-1][tz]) : (delu[INDEX4(d,gx,gy-1,gz)]);
-      delua_pos = (ty < SUB_BLOCK_SIZE-1) ? (delua_s[d][tx][ty+1][tz]) : (delua[INDEX4(d,gx,gy+1,gz)]);
-      delua_neg = (ty > 0) ? (delua_s[d][tx][ty-1][tz]) : (delua[INDEX4(d,gx,gy-1,gz)]);
+      delu_pos = (ty < SUB_BLOCK_SIZE-1) ? (delu_s[d][tx][ty+1][tz]) : (delu[MY_INDEX4(d,gx,gy+1,gz)]);
+      delu_neg = (ty > 0) ? (delu_s[d][tx][ty-1][tz]) : (delu[MY_INDEX4(d,gx,gy-1,gz)]);
+      delua_pos = (ty < SUB_BLOCK_SIZE-1) ? (delua_s[d][tx][ty+1][tz]) : (delua[MY_INDEX4(d,gx,gy+1,gz)]);
+      delua_neg = (ty > 0) ? (delua_s[d][tx][ty-1][tz]) : (delua[MY_INDEX4(d,gx,gy-1,gz)]);
 #else
-      delu_pos = delu[INDEX4(d,gx,gy+1,gz)];
-      delu_neg = delu[INDEX4(d,gx,gy-1,gz)];
-      delua_pos = delua[INDEX4(d,gx,gy+1,gz)];
-      delua_neg = delua[INDEX4(d,gx,gy-1,gz)];
+      delu_pos = delu[MY_INDEX4(d,gx,gy+1,gz)];
+      delu_neg = delu[MY_INDEX4(d,gx,gy-1,gz)];
+      delua_pos = delua[MY_INDEX4(d,gx,gy+1,gz)];
+      delua_neg = delua[MY_INDEX4(d,gx,gy-1,gz)];
 #endif
       delu_n[0][3*d+1] = (delu_pos - delu_neg)*dely;
       delu_n[1][3*d+1] = (fabsf(delu_pos) + fabsf(delu_neg))*dely;
       delu_n[2][3*d+1] = (delua_pos + delua_neg)*dely;
 
 #if USE_SHARED_MEM
-      delu_pos = (tz < SUB_BLOCK_SIZE-1) ? (delu_s[d][tx][ty][tz+1]) : (delu[INDEX4(d,gx,gy,gz+1)]);
-      delu_neg = (tz > 0) ? (delu_s[d][tx][ty][tz-1]) : (delu[INDEX4(d,gx,gy,gz-1)]);
-      delua_pos = (tz < SUB_BLOCK_SIZE-1) ? (delua_s[d][tx][ty][tz+1]) : (delua[INDEX4(d,gx,gy,gz+1)]);
-      delua_neg = (tz > 0) ? (delua_s[d][tx][ty][tz-1]) : (delua[INDEX4(d,gx,gy,gz-1)]);
+      delu_pos = (tz < SUB_BLOCK_SIZE-1) ? (delu_s[d][tx][ty][tz+1]) : (delu[MY_INDEX4(d,gx,gy,gz+1)]);
+      delu_neg = (tz > 0) ? (delu_s[d][tx][ty][tz-1]) : (delu[MY_INDEX4(d,gx,gy,gz-1)]);
+      delua_pos = (tz < SUB_BLOCK_SIZE-1) ? (delua_s[d][tx][ty][tz+1]) : (delua[MY_INDEX4(d,gx,gy,gz+1)]);
+      delua_neg = (tz > 0) ? (delua_s[d][tx][ty][tz-1]) : (delua[MY_INDEX4(d,gx,gy,gz-1)]);
 #else
-      delu_pos = delu[INDEX4(d,gx,gy,gz+1)];
-      delu_neg = delu[INDEX4(d,gx,gy,gz-1)];
-      delua_pos = delua[INDEX4(d,gx,gy,gz+1)];
-      delua_neg = delua[INDEX4(d,gx,gy,gz-1)];
+      delu_pos = delu[MY_INDEX4(d,gx,gy,gz+1)];
+      delu_neg = delu[MY_INDEX4(d,gx,gy,gz-1)];
+      delua_pos = delua[MY_INDEX4(d,gx,gy,gz+1)];
+      delua_neg = delua[MY_INDEX4(d,gx,gy,gz-1)];
 #endif
       delu_n[0][3*d+2] = (delu_pos - delu_neg)*delz;
       delu_n[1][3*d+2] = (fabsf(delu_pos) + fabsf(delu_neg))*delz;
@@ -229,8 +331,7 @@ __global__ void decisionKernel2(float *delu, float *delua, float *errors, float 
     atomicMax(errors, maxError);
 #endif // USE_SHARED_MEM
 #endif // USE_CUB
-
-#undef INDEX4
+#undef MY_INDEX4
 #undef ERR_INDEX
 }
 
