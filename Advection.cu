@@ -21,8 +21,8 @@ inline void gpuPrintErr(cudaError_t err, const char *file, int line) {
     fprintf(stderr,"CUDA Error: %s at %s:%d\n", cudaGetErrorString(err), file, line);
 }
 
-void mem_allocate_host(void* ptr, size_t size) {
-  gpuSafe(cudaMallocHost(&ptr, size));
+void mem_allocate_host(void** ptr, size_t size) {
+  gpuSafe(cudaMallocHost(ptr, size));
 }
 
 void mem_deallocate_host(void* ptr) {

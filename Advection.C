@@ -379,13 +379,13 @@ void Advection::mem_allocate(float* &p, int size){
 }
 
 #ifdef USE_GPU
-extern void mem_allocate_host(void* ptr, size_t size);
+extern void mem_allocate_host(void** ptr, size_t size);
 extern void mem_deallocate_host(void* ptr);
 #endif
 
 void Advection::mem_allocate_all(){
 #ifdef USE_GPU
-  mem_allocate_host(u, (block_width+2)*(block_height+2)*(block_depth+2));
+  mem_allocate_host((void**)&u, (block_width+2)*(block_height+2)*(block_depth+2)*sizeof(float));
 #else
   mem_allocate(u, (block_width+2)*(block_height+2)*(block_depth+2));
 #endif
