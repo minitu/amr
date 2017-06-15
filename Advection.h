@@ -119,8 +119,6 @@ class Advection: public CBase_Advection/*, public AdvTerm */{
   int iterations;
   int meshGenIterations;
 
-  float up;
-  float un;
   float myt, mydt;
   float dx, dy, dz, nx, ny, nz;
   float xmin, xmax, ymin, ymax, zmin, zmax;
