@@ -38,7 +38,7 @@ extern void freeHostMemory(void*);
 extern void allocateDeviceMemory(void**, size_t);
 extern void freeDeviceMemory(void*);
 extern float invokeDecisionKernel(float*, float*, float*, float*, float*, float*, float, float, float, float, int);
-extern void invokeComputeKernel(float*, float, float, float, float, float, float, float, float, float, float, int);
+extern void invokeComputeKernel(float*, float*, float*, float*, float, float, float, float, float, float, float, float, float, float, int);
 #else
 extern int invokeDecisionKernel(float*, float*, float, float, float, float, int, int, int, void*);
 extern void* getPinnedMemory(size_t size);
@@ -486,6 +486,8 @@ Advection::Advection(float xmin, float xmax, float ymin, float ymax,
 
 #ifdef USE_GPU
   allocateDeviceMemory((void**)&d_u, sizeof(float)*(block_width+2)*(block_height+2)*(block_depth+2));
+  allocateDeviceMemory((void**)&d_u2, sizeof(float)*(block_width+2)*(block_height+2)*(block_depth+2));
+  allocateDeviceMemory((void**)&d_u3, sizeof(float)*(block_width+2)*(block_height+2)*(block_depth+2));
   allocateDeviceMemory((void**)&d_error, sizeof(float));
   allocateHostMemory((void**)&h_error, sizeof(float));
 #endif
@@ -621,6 +623,8 @@ Advection::~Advection(){
 
 #ifdef USE_GPU
   freeDeviceMemory(d_u);
+  freeDeviceMemory(d_u2);
+  freeDeviceMemory(d_u3);
   freeDeviceMemory(d_error);
   freeHostMemory(h_error);
 #endif
@@ -1075,7 +1079,7 @@ void Advection::compute(){
   END_FOR
 #else
   /********** GPU CODE **********/
-  invokeComputeKernel(u, dx, dy, dz, dt, apx, apy, apz, anx, any, anz, block_width);
+  invokeComputeKernel(u, d_u, d_u2, d_u3, dx, dy, dz, dt, apx, apy, apz, anx, any, anz, block_width);
 #endif
 
 #ifdef TIMER
@@ -1691,6 +1695,8 @@ Advection::Advection(float dx, float dy, float dz,
 
 #ifdef USE_GPU
   allocateDeviceMemory((void**)&d_u, sizeof(float)*(block_width+2)*(block_height+2)*(block_depth+2));
+  allocateDeviceMemory((void**)&d_u2, sizeof(float)*(block_width+2)*(block_height+2)*(block_depth+2));
+  allocateDeviceMemory((void**)&d_u3, sizeof(float)*(block_width+2)*(block_height+2)*(block_depth+2));
   allocateDeviceMemory((void**)&d_error, sizeof(float));
   allocateHostMemory((void**)&h_error, sizeof(float));
 #endif

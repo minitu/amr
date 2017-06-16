@@ -105,6 +105,8 @@ class Advection: public CBase_Advection/*, public AdvTerm */{
 
   // GPU
   float* d_u;
+  float* d_u2;
+  float* d_u3;
   float* d_error;
   float* h_error;
 

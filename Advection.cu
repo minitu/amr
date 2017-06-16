@@ -96,21 +96,23 @@ __global__ void computeAddKernel(float* u, float* u2, float* u3, int block_size)
 #undef MY_INDEX
 }
 
-void invokeComputeKernel(float* u, float dx, float dy, float dz, float dt, float apx, float apy, float apz, float anx, float any, float anz, int block_size) {
+void invokeComputeKernel(float* u, float* d_u, float* d_u2, float* d_u3, float dx, float dy, float dz, float dt, float apx, float apy, float apz, float anx, float any, float anz, int block_size) {
   // create stream
   cudaStream_t computeStream;
   gpuSafe(cudaStreamCreate(&computeStream));
 
+  /*
   // allocate device memory
   float* d_u;
   float* d_u2;
   float* d_u3;
-  size_t u_size = sizeof(float)*(block_size+2)*(block_size+2)*(block_size+2);
   gpuSafe(cudaMalloc(&d_u, u_size));
   gpuSafe(cudaMalloc(&d_u2, u_size));
   gpuSafe(cudaMalloc(&d_u3, u_size));
+  */
 
   // copy u to device
+  size_t u_size = sizeof(float)*(block_size+2)*(block_size+2)*(block_size+2);
   gpuSafe(cudaMemcpyAsync(d_u, u, u_size, cudaMemcpyHostToDevice, computeStream));
   gpuSafe(cudaMemcpyAsync(d_u2, u, u_size, cudaMemcpyHostToDevice, computeStream));
   gpuSafe(cudaMemcpyAsync(d_u3, u, u_size, cudaMemcpyHostToDevice, computeStream));
@@ -139,10 +141,12 @@ void invokeComputeKernel(float* u, float dx, float dy, float dz, float dt, float
   // wait until completion
   gpuSafe(cudaStreamSynchronize(computeStream));
 
+  /*
   // free memory allocations
   gpuSafe(cudaFree(d_u));
   gpuSafe(cudaFree(d_u2));
   gpuSafe(cudaFree(d_u3));
+  */
 }
 
 __global__ void decisionKernel1(float *u, float *delu, float *delua, float dx, float dy, float dz, int block_size) {
