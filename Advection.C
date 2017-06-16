@@ -32,13 +32,17 @@ extern int max_iterations, refine_frequency, lb_freq;
 #define inInitialMeshGenerationPhase (meshGenIterations <= max_depth)
 
 #ifdef USE_GPU
-#ifdef USE_GPUMANAGER
+#ifndef USE_GPUMANAGER
+extern void allocateHostMemory(void**, size_t);
+extern void freeHostMemory(void*);
+extern void allocateDeviceMemory(void**, size_t);
+extern void freeDeviceMemory(void*);
+extern float invokeDecisionKernel(float*, float*, float*, float*, float*, float*, float, float, float, float, int);
+extern void invokeComputeKernel(float*, float, float, float, float, float, float, float, float, float, float, int);
+#else
 extern int invokeDecisionKernel(float*, float*, float, float, float, float, int, int, int, void*);
 extern void* getPinnedMemory(size_t size);
 extern void freePinnedMemory(void* ptr);
-#else
-extern float invokeDecisionKernel(float*, float, float, float, float, int);
-extern void invokeComputeKernel(float*, float, float, float, float, float, float, float, float, float, float, int);
 #endif
 #endif
 
@@ -221,6 +225,12 @@ AdvectionGroup::AdvectionGroup()
   decision_time_cnt = 0;
 #endif
 
+#ifdef USE_GPU
+  size_t delu_size = sizeof(float)*numDims*(block_width+2)*(block_height+2)*(block_depth+2);
+  allocateDeviceMemory((void**)&d_delu, delu_size);
+  allocateDeviceMemory((void**)&d_delua, delu_size);
+#endif
+
   delu = new float***[numDims];
   delua = new float***[numDims];
 
@@ -239,6 +249,12 @@ AdvectionGroup::AdvectionGroup()
 }
 
 AdvectionGroup::AdvectionGroup(CkMigrateMessage* m): CBase_AdvectionGroup(m){
+#ifdef USE_GPU
+  size_t delu_size = sizeof(float)*numDims*(block_width+2)*(block_height+2)*(block_depth+2);
+  allocateDeviceMemory((void**)&d_delu, delu_size);
+  allocateDeviceMemory((void**)&d_delua, delu_size);
+#endif
+
   delu = new float***[numDims];
   delua = new float***[numDims];
 
@@ -254,6 +270,13 @@ AdvectionGroup::AdvectionGroup(CkMigrateMessage* m): CBase_AdvectionGroup(m){
       }
     }
   }
+}
+
+AdvectionGroup::~AdvectionGroup() {
+#ifdef USE_GPU
+  freeDeviceMemory(d_delu);
+  freeDeviceMemory(d_delua);
+#endif
 }
 
 void AdvectionGroup::incrementWorkUnitCount(int iterations) {
@@ -461,6 +484,12 @@ Advection::Advection(float xmin, float xmax, float ymin, float ymax,
   meshGenIterations=0;
   initializeRestofTheData();
 
+#ifdef USE_GPU
+  allocateDeviceMemory((void**)&d_u, sizeof(float)*(block_width+2)*(block_height+2)*(block_depth+2));
+  allocateDeviceMemory((void**)&d_error, sizeof(float));
+  allocateHostMemory((void**)&h_error, sizeof(float));
+#endif
+
 #ifdef USE_GPUMANAGER
   streamID = -1;
   error_gpumanager = NULL;
@@ -589,6 +618,13 @@ Advection::~Advection(){
     delete [] forward_surface;
     delete [] backward_surface;
   }
+
+#ifdef USE_GPU
+  freeDeviceMemory(d_u);
+  freeDeviceMemory(d_error);
+  freeHostMemory(h_error);
+#endif
+
 #ifdef USE_GPUMANAGER
   if (error_gpumanager != NULL)
     freePinnedMemory(error_gpumanager);
@@ -1170,7 +1206,20 @@ Decision Advection::getGranularityDecision(){
 #endif
 #endif
 
-#ifdef USE_GPUMANAGER
+#ifndef USE_GPUMANAGER
+  // execute GPU kernel
+  float error_gpu = invokeDecisionKernel(u, h_error, d_error, d_u, ppcGrp->d_delu, ppcGrp->d_delua, refine_filter, dx, dy, dz, block_width);
+  error = sqrt(error_gpu);
+
+#ifdef TIMER
+  double time_dur = CkWallTimer() - time_start;
+  ppcGrp->addDecisionTime(time_dur);
+#endif
+
+  if(error < derefine_cutoff && thisIndex.getDepth() > min_depth) return COARSEN;
+  else if(error > refine_cutoff && thisIndex.getDepth() < max_depth) return REFINE;
+  else return STAY;
+#else
   // pinned host memory allocation through mempool (with GPUManager)
   if (error_gpumanager == NULL)
     error_gpumanager = (float*)getPinnedMemory(sizeof(float));
@@ -1186,29 +1235,8 @@ Decision Advection::getGranularityDecision(){
   streamID = invokeDecisionKernel(u, error_gpumanager, refine_filter, dx, dy, dz, block_width, chare_index, streamID, (void*)cb);
 
   return STAY;
-#else
-  // execute GPU kernel
-  float error_gpu = invokeDecisionKernel(u, refine_filter, dx, dy, dz, block_width);
-  error = error_gpu;
-
-#ifdef TIMER
-  double time_end = CkWallTimer();
-#endif
-
 #endif // USE_GPUMANAGER
 #endif // USE_GPU
-
-#ifndef USE_GPUMANAGER
-#ifdef TIMER
-  double time_dur = time_end - time_start;
-  ppcGrp->addDecisionTime(time_dur);
-#endif
-  
-  error = sqrt(error);
-  if(error < derefine_cutoff && thisIndex.getDepth() > min_depth) return COARSEN;
-  else if(error > refine_cutoff && thisIndex.getDepth() < max_depth) return REFINE;  
-  else return STAY;
-#endif // USE_GPUMANAGER
 }
 
 void Advection::resetMeshRestructureData(){
@@ -1660,6 +1688,13 @@ Advection::Advection(float dx, float dy, float dz,
   this->dx = dx;
   this->dy = dy;
   this->dz = dz;
+
+#ifdef USE_GPU
+  allocateDeviceMemory((void**)&d_u, sizeof(float)*(block_width+2)*(block_height+2)*(block_depth+2));
+  allocateDeviceMemory((void**)&d_error, sizeof(float));
+  allocateHostMemory((void**)&h_error, sizeof(float));
+#endif
+
 #ifdef USE_GPUMANAGER
   streamID = -1;
   error_gpumanager = NULL;

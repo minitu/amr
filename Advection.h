@@ -3,8 +3,6 @@
 
 #include "Advection.decl.h"
 
-
-
 class Neighbor {
 
   bool refined;
@@ -104,6 +102,12 @@ class Advection: public CBase_Advection/*, public AdvTerm */{
   float *x;
   float *y;
   float *z;
+
+  // GPU
+  float* d_u;
+  float* d_error;
+  float* h_error;
+
   // GPUManager
   int streamID;
   float *error_gpumanager;
@@ -229,9 +233,15 @@ class AdvectionGroup : public CBase_AdvectionGroup {
  public:
   float ****delu, ****delua;
   float delu2[numDims2], delu3[numDims2], delu4[numDims2];
+
+  // GPU
+  float* d_delu;
+  float* d_delua;
+
   AdvectionGroup_SDAG_CODE
   AdvectionGroup();
   AdvectionGroup(CkMigrateMessage *m);
+  ~AdvectionGroup();
   void pup(PUP::er &p){}
   void incrementWorkUnitCount(int);
   void recordQdTime(int iter, float a, float b){

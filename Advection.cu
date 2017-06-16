@@ -336,19 +336,29 @@ __global__ void decisionKernel2(float *delu, float *delua, float *errors, float 
 }
 
 #ifndef USE_GPUMANAGER
-float invokeDecisionKernel(float* u, float refine_filter, float dx, float dy, float dz, int block_size) {
+void allocateHostMemory(void** ptr, size_t size) {
+  gpuSafe(cudaMallocHost(ptr, size));
+}
+
+void freeHostMemory(void* ptr) {
+  gpuSafe(cudaFreeHost(ptr));
+}
+
+void allocateDeviceMemory(void** ptr, size_t size) {
+  gpuSafe(cudaMalloc(ptr, size));
+}
+
+void freeDeviceMemory(void* ptr) {
+  gpuSafe(cudaFree(ptr));
+}
+
+float invokeDecisionKernel(float* u, float* h_error, float* d_error, float* d_u, float* d_delu, float* d_delua, float refine_filter, float dx, float dy, float dz, int block_size) {
   float error = 0.0; // maximum error value to be returned
 
+  /*
   // pinned host memory allocations
   float *h_error;
   gpuSafe(cudaMallocHost(&h_error, sizeof(float)));
-#if USE_CUB
-  size_t errors_size = sizeof(float)*(block_size-2)*(block_size-2)*(block_size-2);
-#endif
-
-  // create stream
-  cudaStream_t decisionStream;
-  gpuSafe(cudaStreamCreate(&decisionStream));
 
   // allocate device memory
   float *d_error;
@@ -360,10 +370,25 @@ float invokeDecisionKernel(float* u, float refine_filter, float dx, float dy, fl
   gpuSafe(cudaMalloc(&d_delua, delu_size));
   gpuSafe(cudaMalloc(&d_error, sizeof(float)));
   gpuSafe(cudaMemset(d_error, 0, sizeof(float)));
+  */
+
+  // create stream
+  cudaStream_t decisionStream;
+  gpuSafe(cudaStreamCreate(&decisionStream));
+
 #if USE_CUB
+  size_t errors_size = sizeof(float)*(block_size-2)*(block_size-2)*(block_size-2);
   float *d_errors;
   gpuSafe(cudaMalloc(&d_errors, errors_size));
 #endif
+
+  // memset
+  size_t u_size = sizeof(float)*(block_size+2)*(block_size+2)*(block_size+2);
+  size_t delu_size = NUM_DIMS * u_size;
+  *h_error = 0.0f;
+  gpuSafe(cudaMemset(d_delu, 0, delu_size));
+  gpuSafe(cudaMemset(d_delua, 0, delu_size));
+  gpuSafe(cudaMemset(d_error, 0, sizeof(float)));
 
   // copy u to device
   gpuSafe(cudaMemcpyAsync(d_u, u, u_size, cudaMemcpyHostToDevice, decisionStream));
@@ -406,15 +431,17 @@ float invokeDecisionKernel(float* u, float refine_filter, float dx, float dy, fl
   error = *h_error;
 
   // free memory allocations
+  /*
   gpuSafe(cudaFree(d_u));
   gpuSafe(cudaFree(d_delu));
   gpuSafe(cudaFree(d_delua));
   gpuSafe(cudaFree(d_error));
+  gpuSafe(cudaFreeHost(h_error));
+  */
 #if USE_CUB
   gpuSafe(cudaFree(d_errors));
   gpuSafe(cudaFree(d_temp_storage));
 #endif
-  gpuSafe(cudaFreeHost(h_error));
 
   // destroy stream
   gpuSafe(cudaStreamDestroy(decisionStream));
