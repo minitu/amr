@@ -221,8 +221,10 @@ class AdvectionGroup : public CBase_AdvectionGroup {
   std::map<int, int> maxLoad;
   std::map<int, float> avgLoad;
 #ifdef TIMER
-  double time_sum;
-  int time_cnt;
+  double compute_time_sum;
+  int compute_time_cnt;
+  double decision_time_sum;
+  int decision_time_cnt;
 #endif
  public:
   float ****delu, ****delua;
@@ -254,9 +256,13 @@ class AdvectionGroup : public CBase_AdvectionGroup {
   void meshGenerationPhaseIsOver();
 
 #ifdef TIMER
-  void addTime(double time) {
-    time_sum += time;
-    time_cnt++;
+  void addComputeTime(double time) {
+    compute_time_sum += time;
+    compute_time_cnt++;
+  }
+  void addDecisionTime(double time) {
+    decision_time_sum += time;
+    decision_time_cnt++;
   }
 #endif
 };

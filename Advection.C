@@ -215,8 +215,10 @@ AdvectionGroup::AdvectionGroup()
   :workUnitCount(0)
 {
 #ifdef TIMER
-  time_sum = 0;
-  time_cnt = 0;
+  compute_time_sum = 0;
+  compute_time_cnt = 0;
+  decision_time_sum = 0;
+  decision_time_cnt = 0;
 #endif
 
   delu = new float***[numDims];
@@ -318,7 +320,8 @@ void AdvectionGroup::printLogs(){
     ckout << endl;
 
 #ifdef TIMER
-    ckout << "Local error calculation average time: " << time_sum/time_cnt << endl;
+    ckout << "Compute function average time: " << compute_time_sum/compute_time_cnt << endl;
+    ckout << "Local error calculation average time: " << decision_time_sum/decision_time_cnt << endl;
 #endif
 
     CkExit();
@@ -1040,7 +1043,9 @@ void Advection::compute(){
 #endif
 
 #ifdef TIMER
-  double end_time = CkWallTimer();
+  double time_dur = CkWallTimer() - start_time;
+  AdvectionGroup *ppcGrp = ppc.ckLocalBranch();
+  ppcGrp->addComputeTime(time_dur);
 #endif
 
 #if 0
@@ -1064,7 +1069,7 @@ void Advection::gotErrorFromGPU() {
 #ifdef TIMER
   double time_dur = CkWallTimer() - time_start_gpumanager;
   AdvectionGroup *ppcGrp = ppc.ckLocalBranch();
-  ppcGrp->addTime(time_dur);
+  ppcGrp->addDecisionTime(time_dur);
 #endif
 
   float error = sqrt(error_gpu);
@@ -1196,7 +1201,7 @@ Decision Advection::getGranularityDecision(){
 #ifndef USE_GPUMANAGER
 #ifdef TIMER
   double time_dur = time_end - time_start;
-  ppcGrp->addTime(time_dur);
+  ppcGrp->addDecisionTime(time_dur);
 #endif
   
   error = sqrt(error);
