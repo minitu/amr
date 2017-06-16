@@ -344,7 +344,7 @@ void AdvectionGroup::printLogs(){
 
 #ifdef TIMER
     ckout << "Compute function average time: " << compute_time_sum/compute_time_cnt << endl;
-    ckout << "Local error calculation average time: " << decision_time_sum/decision_time_cnt << endl;
+    ckout << "Refinement decision average time: " << decision_time_sum/decision_time_cnt << endl;
 #endif
 
     CkExit();
