@@ -335,90 +335,7 @@ __global__ void decisionKernel2(float *delu, float *delua, float *errors, float 
 #undef ERR_INDEX
 }
 
-#ifdef USE_GPUMANAGER
-void run_DECISION_KERNEL_1(workRequest *wr, cudaStream_t kernel_stream, void **devBuffers) {
-  void* constants = wr->getUserData();
-  float dx = *((float*)constants);
-  float dy = *((float*)((char*)constants + sizeof(float)));
-  float dz = *((float*)((char*)constants + sizeof(float)*2));
-  int block_size = *((int*)((char*)constants + sizeof(float)*3));
-  decisionKernel1<<<wr->dimGrid, wr->dimBlock, wr->smemSize, kernel_stream>>>
-    ((float*)hapi_devBuffer(wr, 0), (float*)hapi_devBuffer(wr, 1), (float*)hapi_devBuffer(wr, 2),
-     dx, dy, dz, block_size);
-  gpuCheck();
-}
-
-void run_DECISION_KERNEL_2(workRequest *wr, cudaStream_t kernel_stream, void **devBuffers) {
-  void* constants = wr->getUserData();
-  float dx = *((float*)constants);
-  float dy = *((float*)((char*)constants + sizeof(float)));
-  float dz = *((float*)((char*)constants + sizeof(float)*2));
-  int block_size = *((int*)((char*)constants + sizeof(float)*3));
-  float refine_filter = *((float*)((char*)constants + sizeof(float)*3 + sizeof(int)));
-  decisionKernel2<<<wr->dimGrid, wr->dimBlock, wr->smemSize, kernel_stream>>>
-    ((float*)hapi_devBuffer(wr, 0), (float*)hapi_devBuffer(wr, 1), (float*)hapi_devBuffer(wr, 2),
-     refine_filter, dx, dy, dz, block_size);
-  gpuCheck();
-}
-
-void* getPinnedMemory(size_t size) {
-  return hapi_poolMalloc(size);
-}
-
-void freePinnedMemory(void* ptr) {
-  hapi_poolFree(ptr);
-}
-
-int invokeDecisionKernel(float* u, float* pinned_error, float refine_filter, float dx, float dy, float dz, int block_size, int chare_index, int streamID, void* cb) {
-  // sizes of data
-  size_t u_size = sizeof(float)*(block_size+2)*(block_size+2)*(block_size+2);
-  size_t delu_size = NUM_DIMS * u_size;
-
-  // store constants
-  void* constants = malloc(sizeof(float)*3 + sizeof(int) + sizeof(float));
-  *((float*)constants) = dx;
-  *((float*)((char*)constants + sizeof(float))) = dy;
-  *((float*)((char*)constants + sizeof(float)*2)) = dz;
-  *((int*)((char*)constants + sizeof(float)*3)) = block_size;
-  *((float*)((char*)constants + sizeof(float)*3 + sizeof(int))) = refine_filter;
-
-  // create work request for first kernel
-  workRequest* decision1 = hapi_createWorkRequest();
-  int sub_block_cnt = ceil((float)(block_size+2)/SUB_BLOCK_SIZE);
-  dim3 dimGrid(sub_block_cnt, sub_block_cnt, sub_block_cnt);
-  dim3 dimBlock(SUB_BLOCK_SIZE, SUB_BLOCK_SIZE, SUB_BLOCK_SIZE);
-  decision1->setExecParams(dimGrid, dimBlock);
-  if (streamID != -1)
-    decision1->setStream(streamID);
-  decision1->addBufferInfo(u, u_size, true, false, false, chare_index*4); // d_u
-  decision1->addBufferInfo(NULL, delu_size, false, false, false, chare_index*4 + 1); // d_delu
-  decision1->addBufferInfo(NULL, delu_size, false, false, false, chare_index*4 + 2); // d_delua
-  decision1->setUserData(constants, sizeof(float)*3 + sizeof(int));
-  decision1->setRunKernel(run_DECISION_KERNEL_1);
-
-  // enqueue first work request
-  streamID = hapi_enqueue(decision1);
-
-  // create work request for second kernel
-  workRequest* decision2 = hapi_createWorkRequest();
-  sub_block_cnt = ceil((float)block_size/SUB_BLOCK_SIZE);
-  dimGrid = dim3(sub_block_cnt, sub_block_cnt, sub_block_cnt);
-  decision2->setExecParams(dimGrid, dimBlock);
-  decision2->setStream(streamID);
-  //decision2->addBufferInfo(NULL, u_size, false, false, true, chare_index*4); // d_u
-  decision2->addBufferInfo(NULL, delu_size, false, false, false, chare_index*4 + 1); // d_delu
-  decision2->addBufferInfo(NULL, delu_size, false, false, false, chare_index*4 + 2); // d_delua
-  decision2->addBufferInfo(pinned_error, sizeof(float), true, true, false, chare_index*4 + 3); // d_error
-  decision2->setCallback(cb);
-  decision2->setUserData(constants, sizeof(float)*3 + sizeof(int) + sizeof(float));
-  decision2->setRunKernel(run_DECISION_KERNEL_2);
-
-  // enqueue second work request
-  hapi_enqueue(decision2);
-
-  return streamID;
-}
-#else
+#ifndef USE_GPUMANAGER
 float invokeDecisionKernel(float* u, float refine_filter, float dx, float dy, float dz, int block_size) {
   float error = 0.0; // maximum error value to be returned
 
@@ -503,5 +420,88 @@ float invokeDecisionKernel(float* u, float refine_filter, float dx, float dy, fl
   gpuSafe(cudaStreamDestroy(decisionStream));
 
   return error;
+}
+#else
+void run_DECISION_KERNEL_1(workRequest *wr, cudaStream_t kernel_stream, void **devBuffers) {
+  void* constants = wr->getUserData();
+  float dx = *((float*)constants);
+  float dy = *((float*)((char*)constants + sizeof(float)));
+  float dz = *((float*)((char*)constants + sizeof(float)*2));
+  int block_size = *((int*)((char*)constants + sizeof(float)*3));
+  decisionKernel1<<<wr->dimGrid, wr->dimBlock, wr->smemSize, kernel_stream>>>
+    ((float*)hapi_devBuffer(wr, 0), (float*)hapi_devBuffer(wr, 1), (float*)hapi_devBuffer(wr, 2),
+     dx, dy, dz, block_size);
+  gpuCheck();
+}
+
+void run_DECISION_KERNEL_2(workRequest *wr, cudaStream_t kernel_stream, void **devBuffers) {
+  void* constants = wr->getUserData();
+  float dx = *((float*)constants);
+  float dy = *((float*)((char*)constants + sizeof(float)));
+  float dz = *((float*)((char*)constants + sizeof(float)*2));
+  int block_size = *((int*)((char*)constants + sizeof(float)*3));
+  float refine_filter = *((float*)((char*)constants + sizeof(float)*3 + sizeof(int)));
+  decisionKernel2<<<wr->dimGrid, wr->dimBlock, wr->smemSize, kernel_stream>>>
+    ((float*)hapi_devBuffer(wr, 0), (float*)hapi_devBuffer(wr, 1), (float*)hapi_devBuffer(wr, 2),
+     refine_filter, dx, dy, dz, block_size);
+  gpuCheck();
+}
+
+void* getPinnedMemory(size_t size) {
+  return hapi_poolMalloc(size);
+}
+
+void freePinnedMemory(void* ptr) {
+  hapi_poolFree(ptr);
+}
+
+int invokeDecisionKernel(float* u, float* pinned_error, float refine_filter, float dx, float dy, float dz, int block_size, int chare_index, int streamID, void* cb) {
+  // sizes of data
+  size_t u_size = sizeof(float)*(block_size+2)*(block_size+2)*(block_size+2);
+  size_t delu_size = NUM_DIMS * u_size;
+
+  // store constants
+  void* constants = malloc(sizeof(float)*3 + sizeof(int) + sizeof(float));
+  *((float*)constants) = dx;
+  *((float*)((char*)constants + sizeof(float))) = dy;
+  *((float*)((char*)constants + sizeof(float)*2)) = dz;
+  *((int*)((char*)constants + sizeof(float)*3)) = block_size;
+  *((float*)((char*)constants + sizeof(float)*3 + sizeof(int))) = refine_filter;
+
+  // create work request for first kernel
+  workRequest* decision1 = hapi_createWorkRequest();
+  int sub_block_cnt = ceil((float)(block_size+2)/SUB_BLOCK_SIZE);
+  dim3 dimGrid(sub_block_cnt, sub_block_cnt, sub_block_cnt);
+  dim3 dimBlock(SUB_BLOCK_SIZE, SUB_BLOCK_SIZE, SUB_BLOCK_SIZE);
+  decision1->setExecParams(dimGrid, dimBlock);
+  if (streamID != -1)
+    decision1->setStream(streamID);
+  decision1->addBufferInfo(u, u_size, true, false, false, chare_index*4); // d_u
+  decision1->addBufferInfo(NULL, delu_size, false, false, false, chare_index*4 + 1); // d_delu
+  decision1->addBufferInfo(NULL, delu_size, false, false, false, chare_index*4 + 2); // d_delua
+  decision1->setUserData(constants, sizeof(float)*3 + sizeof(int));
+  decision1->setRunKernel(run_DECISION_KERNEL_1);
+
+  // enqueue first work request
+  streamID = hapi_enqueue(decision1);
+
+  // create work request for second kernel
+  workRequest* decision2 = hapi_createWorkRequest();
+  sub_block_cnt = ceil((float)block_size/SUB_BLOCK_SIZE);
+  dimGrid = dim3(sub_block_cnt, sub_block_cnt, sub_block_cnt);
+  decision2->setExecParams(dimGrid, dimBlock);
+  decision2->setStream(streamID);
+  //decision2->addBufferInfo(NULL, u_size, false, false, true, chare_index*4); // d_u
+  decision2->addBufferInfo(NULL, delu_size, false, false, false, chare_index*4 + 1); // d_delu
+  decision2->addBufferInfo(NULL, delu_size, false, false, false, chare_index*4 + 2); // d_delua
+  decision2->addBufferInfo(pinned_error, sizeof(float), true, true, false, chare_index*4 + 3); // d_error
+  decision2->setCallback(cb);
+  decision2->setUserData(constants, sizeof(float)*3 + sizeof(int) + sizeof(float));
+  decision2->setRunKernel(run_DECISION_KERNEL_2);
+
+  // enqueue second work request
+  hapi_enqueue(decision2);
+
+  return streamID;
 }
 #endif // USE_GPUMANAGER
