@@ -1196,8 +1196,13 @@ Decision Advection::getGranularityDecision(){
   }
 
 #ifdef TIMER
-  double time_end = CkWallTimer();
+  double time_dur = CkWallTimer() - time_start;
+  ppcGrp->addDecisionTime(time_dur);
 #endif
+
+  if(error < derefine_cutoff && thisIndex.getDepth() > min_depth) return COARSEN;
+  else if(error > refine_cutoff && thisIndex.getDepth() < max_depth) return REFINE;
+  else return STAY;
 
 #else // #elif defined(USE_GPU)
   /********** GPU CODE *********/
