@@ -24,9 +24,9 @@ rm -rf $resultfile
 
 cd $rundir
 
-for array_dim in 512
+for array_dim in 256
 do
-  for block_size in 64
+  for block_size in 32
   do
     outfile="$execname-$block_size-$array_dim.out"
     logfile="$execname-$block_size-$array_dim.log"
@@ -36,26 +36,30 @@ do
     echo $runstr
     echo $runstr >> "$logdir/$resultfile"
 
-    for pVal in 1 2 4 8 16 23
+    for pVal in 1 2 6 12 24
     do
       echo "Using $pVal PEs"
-      runtime_acc=0.0
-      errortime_acc=0.0
+      run_time_acc=0.0
+      decision_time_acc=0.0
+      compute_time_acc=0.0
       for (( iteration=1; iteration<=$iterations; iteration++ ))
       do
         echo "Iteration $iteration"
 
-        ./charmrun +p$pVal ++ppn $pVal ++local $execname $max_depth $block_size $num_iters $lb_freq $array_dim > $logdir/$outfile
+        ./$execname +p$pVal ++ppn $pVal $max_depth $block_size $num_iters $lb_freq $array_dim > $logdir/$outfile
 
-        runtime=`grep -i "simulation time" $logdir/$outfile | cut -d ":" -f 2 | cut -d " " -f 2`
-        errortime=`grep -i "average time" $logdir/$outfile | cut -d ":" -f 2 | cut -d " " -f 2`
-        echo "+p $pVal $runtime $errortime" >> $logdir/$logfile
-        runtime_acc=$(echo "$runtime_acc + $runtime" | bc)
-        errortime_acc=$(echo "$errortime_acc + $errortime" | bc)
+        run_time=`grep -i "simulation time" $logdir/$outfile | cut -d ":" -f 2 | cut -d " " -f 2`
+        decision_time=`grep -i "decision average time" $logdir/$outfile | cut -d ":" -f 2 | cut -d " " -f 2`
+        compute_time=`grep -i "function average time" $logdir/$outfile | cut -d ":" -f 2 | cut -d " " -f 2`
+        echo "+p $pVal $run_time $decision_time $compute_time" >> $logdir/$logfile
+        run_time_acc=$(echo "$run_time_acc + $run_time" | bc)
+        decision_time_acc=$(echo "$decision_time_acc + $decision_time" | bc)
+        compute_time_acc=$(echo "$compute_time_acc + $compute_time" | bc)
       done
-      runtime_avg=$(echo "scale=6; $runtime_acc / $iterations" | bc)
-      errortime_avg=$(echo "scale=6; $errortime_acc / $iterations" | bc)
-      echo "[$pVal PEs] average execution time: $runtime_avg, average local error calculation time: $errortime_avg" >> "$logdir/$resultfile"
+      run_time_avg=$(echo "scale=6; $run_time_acc / $iterations" | bc)
+      decision_time_avg=$(echo "scale=6; $decision_time_acc / $iterations" | bc)
+      compute_time_avg=$(echo "scale=6; $compute_time_acc / $iterations" | bc)
+      echo "[$pVal PEs] average execution time: $run_time_avg, average refinement decision time: $decision_time_avg, average compute function time: $compute_time_avg" >> "$logdir/$resultfile"
     done
   done
 done

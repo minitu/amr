@@ -1,0 +1,6 @@
+Running advection 4 32 1 3 256
+[1 PEs] average execution time: 58.976481, average refinement decision time: .016864, average compute function time: .004207
+[2 PEs] average execution time: 29.819134, average refinement decision time: .016986, average compute function time: .004196
+[6 PEs] average execution time: 15.098353, average refinement decision time: .019415, average compute function time: .004799
+[12 PEs] average execution time: 13.469315, average refinement decision time: .033651, average compute function time: .008901
+[24 PEs] average execution time: 8.576989, average refinement decision time: .034862, average compute function time: .009329
