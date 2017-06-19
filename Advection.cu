@@ -101,16 +101,6 @@ void invokeComputeKernel(float* u, float* d_u, float* d_u2, float* d_u3, float d
   cudaStream_t computeStream;
   gpuSafe(cudaStreamCreate(&computeStream));
 
-  /*
-  // allocate device memory
-  float* d_u;
-  float* d_u2;
-  float* d_u3;
-  gpuSafe(cudaMalloc(&d_u, u_size));
-  gpuSafe(cudaMalloc(&d_u2, u_size));
-  gpuSafe(cudaMalloc(&d_u3, u_size));
-  */
-
   // copy u to device
   size_t u_size = sizeof(float)*(block_size+2)*(block_size+2)*(block_size+2);
   gpuSafe(cudaMemcpyAsync(d_u, u, u_size, cudaMemcpyHostToDevice, computeStream));
@@ -140,13 +130,6 @@ void invokeComputeKernel(float* u, float* d_u, float* d_u2, float* d_u3, float d
 
   // wait until completion
   gpuSafe(cudaStreamSynchronize(computeStream));
-
-  /*
-  // free memory allocations
-  gpuSafe(cudaFree(d_u));
-  gpuSafe(cudaFree(d_u2));
-  gpuSafe(cudaFree(d_u3));
-  */
 }
 
 __global__ void decisionKernel1(float *u, float *delu, float *delua, float dx, float dy, float dz, int block_size) {
@@ -359,23 +342,6 @@ void freeDeviceMemory(void* ptr) {
 float invokeDecisionKernel(float* u, float* h_error, float* d_error, float* d_u, float* d_delu, float* d_delua, float refine_filter, float dx, float dy, float dz, int block_size) {
   float error = 0.0; // maximum error value to be returned
 
-  /*
-  // pinned host memory allocations
-  float *h_error;
-  gpuSafe(cudaMallocHost(&h_error, sizeof(float)));
-
-  // allocate device memory
-  float *d_error;
-  float *d_u, *d_delu, *d_delua;
-  size_t u_size = sizeof(float)*(block_size+2)*(block_size+2)*(block_size+2);
-  size_t delu_size = NUM_DIMS * u_size;
-  gpuSafe(cudaMalloc(&d_u, u_size));
-  gpuSafe(cudaMalloc(&d_delu, delu_size));
-  gpuSafe(cudaMalloc(&d_delua, delu_size));
-  gpuSafe(cudaMalloc(&d_error, sizeof(float)));
-  gpuSafe(cudaMemset(d_error, 0, sizeof(float)));
-  */
-
   // create stream
   cudaStream_t decisionStream;
   gpuSafe(cudaStreamCreate(&decisionStream));
@@ -434,15 +400,8 @@ float invokeDecisionKernel(float* u, float* h_error, float* d_error, float* d_u,
   // store max error
   error = *h_error;
 
-  // free memory allocations
-  /*
-  gpuSafe(cudaFree(d_u));
-  gpuSafe(cudaFree(d_delu));
-  gpuSafe(cudaFree(d_delua));
-  gpuSafe(cudaFree(d_error));
-  gpuSafe(cudaFreeHost(h_error));
-  */
 #if USE_CUB
+  // free memory allocations
   gpuSafe(cudaFree(d_errors));
   gpuSafe(cudaFree(d_temp_storage));
 #endif
