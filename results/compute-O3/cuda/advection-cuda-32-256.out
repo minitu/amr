@@ -4,7 +4,7 @@ Converse/Charm++ Commit ID: v6.7.0-826-gd5f1f91
 Warning> Randomization of stack pointer is turned on in kernel, thread migration may not work! Run 'echo 0 > /proc/sys/kernel/randomize_va_space' as root to disable it, or try run with '+isomalloc_sync'.  
 CharmLB> Load balancer assumes all CPUs are same.
 Charm++> Running on 1 unique compute nodes (24-way SMP).
-Charm++> cpu topology info is gathered in 0.003 seconds.
+Charm++> cpu topology info is gathered in 0.004 seconds.
 * Running AMR code revision: 
 * Constants
 	dx = 0.003906, apx = 0.000000, anx = 0.000000, dt = 0.007812, t = 0.007812
@@ -24,14 +24,14 @@ doing remeshing now.. iterations = 0, meshGenIterations = 3
 starting phase 2, iterations = 3, meshGenIterations = 3
 doing remeshing now.. iterations = 0, meshGenIterations = 4
 starting phase 2, iterations = 4, meshGenIterations = 4
-starting iteration 1 at root, time = 1.721610
-Simulation time: 1.254009 s
+starting iteration 1 at root, time = 1.622554
+Simulation time: 1.116000 s
 Total work units = 904
-QD times: 1,0.024234 2,0.009048 3,0.012985 4,0.012929 
-Remeshing times: 0,0.165444 
+QD times: 1,0.013020 2,0.038991 3,0.012987 4,0.025973 
+Remeshing times: 0,0.145382 
 Per iteration work units: 1,904 
 Load balancing stats: 
-Compute function average time: 0.002240
-Refinement decision average time: 0.002881
+Compute function average time: 0.002779
+Refinement decision average time: 0.002968
 EXIT HYBRID API
 [Partition 0][Node 0] End of program

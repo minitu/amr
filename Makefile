@@ -3,7 +3,7 @@ DEFINE= -DTIMER # Possible flags: -DTIMER
 
 CHARMC = $(CHARM_HOME)/bin/charmc -I.
 CXX=$(CHARMC)
-OPTS = -O0 -g
+OPTS = -O3
 CXXFLAGS += $(DEFINE) -DAMR_REVISION=$(REVNUM) $(OPTS)
 LD_LIBS =
 CUDA_LD_LIBS = -L$(CUDATOOLKIT_HOME)/lib64 -lcudart
