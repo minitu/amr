@@ -1,0 +1,38 @@
+Charm++: standalone mode (not using charmrun)
+Charm++> Running in Multicore mode:  16 threads
+Converse/Charm++ Commit ID: v6.8.0-beta1-82-g3bb3c5e
+Warning> using Isomalloc in SMP mode, you may need to run with '+isomalloc_sync'.
+CharmLB> Load balancer assumes all CPUs are same.
+Charm++> Running on 1 unique compute nodes (16-way SMP).
+Charm++> cpu topology info is gathered in 0.609 seconds.
+* Running AMR code revision: 
+* Constants
+	dx = 0.003906, apx = 0.000000, anx = 0.000000, dt = 0.007812, t = 0.007812
+* Running Advection on 16 processor(s)
+	Array dimension: 256 x 256 x 256
+	Block dimension: 32 x 32 x 32
+	Number of chares: 8 x 8 x 8
+	Minimum depth: 3
+	Maximum depth: 4
+	Maximum number of iterations: 1
+	Load balacning frequency: 3
+doing remeshing now.. iterations = 0, meshGenIterations = 1
+starting phase 2, iterations = 1, meshGenIterations = 1
+doing remeshing now.. iterations = 0, meshGenIterations = 2
+starting phase 2, iterations = 2, meshGenIterations = 2
+doing remeshing now.. iterations = 0, meshGenIterations = 3
+starting phase 2, iterations = 3, meshGenIterations = 3
+doing remeshing now.. iterations = 0, meshGenIterations = 4
+starting phase 2, iterations = 4, meshGenIterations = 4
+starting iteration 1 at root, time = 14.840059
+Simulation time: 12.780001 s
+Total work units = 904
+QD times: 1,1.475999 2,1.352007 3,1.200007 4,1.168007 
+Remeshing times: 0,2.314793 
+Per iteration work units: 1,904 
+Load balancing stats: 
+Compute function average time: 0.001776
+Refinement decision average time: 0.005929
+EXIT HYBRID API
+[Partition 0][Node 0] End of program
+Application 14689132 resources: utime ~16s, stime ~2s, Rss ~637168, inblocks ~2661, outblocks ~5743

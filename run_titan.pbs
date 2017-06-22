@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #PBS -A csc103
-#PBS -N AMR-256
+#PBS -N AMR-256-CUDA
 #PBS -j oe
 #PBS -l walltime=02:00:00,nodes=1
 
@@ -9,7 +9,7 @@
 iterations=10
 rundir=/lustre/atlas/proj-shared/csc103/jchoi/amr
 
-execname="advection"
+execname="advection-cuda"
 max_depth=4
 num_iters=1
 lb_freq=3

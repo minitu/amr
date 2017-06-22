@@ -1,0 +1,6 @@
+Running advection-cuda 4 32 1 3 256
+[1 PEs] average execution time: 2.541779, average refinement decision time: .000430, average compute function time: .000261
+[2 PEs] average execution time: 3.169471, average refinement decision time: .000860, average compute function time: .000523
+[4 PEs] average execution time: 3.967203, average refinement decision time: .001638, average compute function time: .001046
+[8 PEs] average execution time: 6.994797, average refinement decision time: .003163, average compute function time: .002081
+[16 PEs] average execution time: 12.993531, average refinement decision time: .005737, average compute function time: .004039
