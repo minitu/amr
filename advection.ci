@@ -251,9 +251,11 @@ module Advection{
         //only the leaf chares do the computation
         //others just move on to the next iteration
         if(isLeaf) compute();
-        iterate();
+        else iterate();
       }
     };
+
+    entry void computeDone();
 
     entry void iterate(){
       serial {

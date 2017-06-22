@@ -3,6 +3,9 @@
 
 #include "Advection.decl.h"
 
+#include <cuda.h>
+#include <cuda_runtime.h>
+
 class Neighbor {
 
   bool refined;
@@ -111,9 +114,11 @@ class Advection: public CBase_Advection/*, public AdvTerm */{
   float* h_error;
 
   // GPUManager
+  cudaStream_t computeStream;
+  cudaStream_t decisionStream;
   int streamID;
-  float *error_gpumanager;
-  double time_start_gpumanager;
+  double start_time_compute_gpum;
+  double start_time_decision_gpum;
 
   float *left_surface;
   float *right_surface;
@@ -172,10 +177,12 @@ class Advection: public CBase_Advection/*, public AdvTerm */{
   void applyInitialCondition();
   void process(int, int, int, int, float*);
   void compute();
+  void computeDone(); // GPUManager
 
   /*Phase1 Entry Methods*/
   void makeGranularityDecisionAndCommunicate();
   Decision getGranularityDecision();
+  void gotErrorFromGPU(); // GPUManager
 
   void resetMeshRestructureData();
   void prepareData4Exchange();
@@ -213,9 +220,6 @@ class Advection: public CBase_Advection/*, public AdvTerm */{
   int amr3d_i;
   int ichild;
   void printData();
-
-  // GPUManager
-  void gotErrorFromGPU();
 };
 
 class AdvectionGroup : public CBase_AdvectionGroup {

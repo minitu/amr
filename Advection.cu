@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <cfloat>
 
-#ifdef USE_GPUMANAGER
+#if defined(USE_GPUMANAGER) || defined(USE_OLD_GPUMANAGER)
 #include "wr.h"
 #endif
 
@@ -96,10 +96,10 @@ __global__ void computeAddKernel(float* u, float* u2, float* u3, int block_size)
 #undef MY_INDEX
 }
 
-void invokeComputeKernel(float* u, float* d_u, float* d_u2, float* d_u3, float dx, float dy, float dz, float dt, float apx, float apy, float apz, float anx, float any, float anz, int block_size) {
-  // create stream
-  cudaStream_t computeStream;
-  gpuSafe(cudaStreamCreate(&computeStream));
+void invokeComputeKernel(cudaStream_t computeStream, float* u, float* d_u, float* d_u2, float* d_u3, float dx, float dy, float dz, float dt, float apx, float apy, float apz, float anx, float any, float anz, int block_size, void* cb) {
+#ifdef USE_GPUMANAGER
+  computeStream = hapi_getStream();
+#endif
 
   // copy u to device
   size_t u_size = sizeof(float)*(block_size+2)*(block_size+2)*(block_size+2);
@@ -128,8 +128,13 @@ void invokeComputeKernel(float* u, float* d_u, float* d_u2, float* d_u3, float d
   // copy new u to host
   gpuSafe(cudaMemcpyAsync(u, d_u, u_size, cudaMemcpyDeviceToHost, computeStream));
 
+#ifdef USE_GPUMANAGER
+  // insert callback
+  hapi_insertCallback(computeStream, cb, NULL, 0);
+#else // #ifdef USE_GPU
   // wait until completion
   gpuSafe(cudaStreamSynchronize(computeStream));
+#endif
 }
 
 __global__ void decisionKernel1(float *u, float *delu, float *delua, float dx, float dy, float dz, int block_size) {
@@ -322,7 +327,17 @@ __global__ void decisionKernel2(float *delu, float *delua, float *errors, float 
 #undef ERR_INDEX
 }
 
-#ifndef USE_GPUMANAGER
+#if defined(USE_GPU) || defined(USE_GPUMANAGER)
+#ifdef USE_GPU
+void createStream(cudaStream_t* stream_ptr) {
+  gpuSafe(cudaStreamCreate(stream_ptr));
+}
+
+void destroyStream(cudaStream_t stream) {
+  gpuSafe(cudaStreamDestroy(stream));
+}
+#endif
+
 void allocateHostMemory(void** ptr, size_t size) {
   gpuSafe(cudaMallocHost(ptr, size));
 }
@@ -339,17 +354,19 @@ void freeDeviceMemory(void* ptr) {
   gpuSafe(cudaFree(ptr));
 }
 
-float invokeDecisionKernel(float* u, float* h_error, float* d_error, float* d_u, float* d_delu, float* d_delua, float refine_filter, float dx, float dy, float dz, int block_size) {
+float invokeDecisionKernel(cudaStream_t decisionStream, float* u, float* h_error, float* d_error, float* d_u, float* d_delu, float* d_delua, float refine_filter, float dx, float dy, float dz, int block_size, void* cb) {
+#ifdef USE_GPU
   float error = 0.0; // maximum error value to be returned
-
-  // create stream
-  cudaStream_t decisionStream;
-  gpuSafe(cudaStreamCreate(&decisionStream));
+#endif
 
 #if USE_CUB
   size_t errors_size = sizeof(float)*(block_size-2)*(block_size-2)*(block_size-2);
   float *d_errors;
   gpuSafe(cudaMalloc(&d_errors, errors_size));
+#endif
+
+#ifdef USE_GPUMANAGER
+  decisionStream = hapi_getStream();
 #endif
 
   // memset
@@ -381,8 +398,13 @@ float invokeDecisionKernel(float* u, float* h_error, float* d_error, float* d_u,
   gpuSafe(cudaMemcpyAsync(h_error, d_error, sizeof(float), cudaMemcpyDeviceToHost, decisionStream));
   gpuCheck();
 
+#ifdef USE_GPU
   // wait until completion
   gpuSafe(cudaStreamSynchronize(decisionStream));
+#else // #ifdef USE_GPUMANAGER
+  // insert callback
+  hapi_insertCallback(decisionStream, cb, NULL, 0);
+#endif
 
 #if USE_CUB
   // max reduction using cub (can multiple instances of this run concurrently?)
@@ -395,23 +417,22 @@ float invokeDecisionKernel(float* u, float* h_error, float* d_error, float* d_u,
 
   // wait until completion
   gpuSafe(cudaDeviceSynchronize());
-#endif
 
-  // store max error
-  error = *h_error;
-
-#if USE_CUB
   // free memory allocations
   gpuSafe(cudaFree(d_errors));
   gpuSafe(cudaFree(d_temp_storage));
 #endif
 
-  // destroy stream
-  gpuSafe(cudaStreamDestroy(decisionStream));
+#ifdef USE_GPU
+  // store max error
+  error = *h_error;
 
   return error;
+#else // #ifdef USE_GPUMANAGER
+  return 0;
+#endif
 }
-#else
+#else // #ifdef USE_OLD_GPUMANAGER
 void run_DECISION_KERNEL_1(workRequest *wr, cudaStream_t kernel_stream, void **devBuffers) {
   void* constants = wr->getUserData();
   float dx = *((float*)constants);
@@ -494,4 +515,4 @@ int invokeDecisionKernel(float* u, float* pinned_error, float refine_filter, flo
 
   return streamID;
 }
-#endif // USE_GPUMANAGER
+#endif
