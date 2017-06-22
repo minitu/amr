@@ -1745,6 +1745,10 @@ Advection::Advection(float dx, float dy, float dz,
   allocateDeviceMemory((void**)&d_u3, sizeof(float)*(block_width+2)*(block_height+2)*(block_depth+2));
   allocateDeviceMemory((void**)&d_error, sizeof(float));
   allocateHostMemory((void**)&h_error, sizeof(float));
+#ifdef USE_GPU
+  createStream(&computeStream);
+  createStream(&decisionStream);
+#endif
 #endif
 
 #ifdef USE_OLD_GPUMANAGER
